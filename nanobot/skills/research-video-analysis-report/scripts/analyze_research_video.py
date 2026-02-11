@@ -27,6 +27,9 @@ DEFAULT_OUTPUT_ROOT = Path("./output")
 DEFAULT_SIZE_THRESHOLD_MB = 180.0
 DEFAULT_MAX_WAIT_SECONDS = 300
 DEFAULT_POLL_INTERVAL_SECONDS = 3.0
+DEFAULT_PROMPT_TEMPLATE = (
+    Path(__file__).resolve().parent.parent / "assets" / "prompt_research_assistant.md"
+)
 
 
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -280,59 +283,20 @@ def upload_and_wait_active(
 def build_default_prompt(task: str | None, notes: str | None) -> str:
     task_line = task.strip() if task else "(not provided)"
     notes_line = notes.strip() if notes else "(not provided)"
+    try:
+        template = DEFAULT_PROMPT_TEMPLATE.read_text(encoding="utf-8")
+        rendered = template.replace("{{TASK}}", task_line).replace("{{NOTES}}", notes_line).strip()
+        if rendered:
+            return rendered
+    except OSError:
+        pass
 
-    return f"""
-You are a research assistant analyzing an input video. The video may belong to different scientific/engineering domains.
-
-Your job:
-1) Infer the most likely research/application domain from the video (open-set classification; do not assume a fixed list).
-2) Infer the task and success criteria if possible.
-3) Produce a research-grade Markdown report with timeline, key observations, failure/risk analysis, and actionable next-step recommendations.
-
-User-provided task (may be empty):
-{task_line}
-
-User-provided notes (may be empty):
-{notes_line}
-
-Output rules:
-- Return ONLY Markdown.
-- Include timestamps when describing events.
-- Be explicit about uncertainty and what cannot be inferred.
-
-Use this structure:
-
-# Research Video Analysis Report
-
-## 1. Summary
-
-## 2. Inferred Domain & Task (with confidence)
-
-## 3. Assumptions / Setup (what can and cannot be inferred)
-
-## 4. Timeline of Key Events (with timestamps)
-
-## 5. Key Observations (domain-specific)
-
-## 6. Failure / Risk Analysis (evidence-based)
-
-## 7. Actionable Recommendations
-- Data collection / labeling
-- Model / algorithm changes
-- Prompt / instruction changes
-- Method or system changes specific to the inferred domain
-- Evaluation metrics / ablations
-
-## 8. Next Experiment Plan (3-6 items with pass/fail criteria)
-
-## 9. Appendix (video metadata, limitations)
-
-Domain-adaptive guidance:
-- Tailor observations, risks, and recommendations to the inferred domain.
-- For dynamic physical systems: highlight interactions, stability, collisions, recoveries, and stop/termination behavior.
-- For communication or presentation content: extract topic segments, key decisions, and action items.
-- For imaging-heavy scientific content: highlight image quality, artifacts, protocol steps, and reliability limits.
-""".strip()
+    return (
+        "You are a research assistant analyzing a video.\n"
+        "Infer domain/task first, then return ONLY Markdown with timeline, risks, and next-step recommendations.\n\n"
+        f"User task: {task_line}\n"
+        f"User notes: {notes_line}\n"
+    ).strip()
 
 
 def read_prompt(prompt_file: Path | None, task: str | None, notes: str | None) -> str:

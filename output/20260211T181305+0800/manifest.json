@@ -1,0 +1,25 @@
+{
+  "created_at_beijing": "2026-02-11T18:13:14.041767+08:00",
+  "args": {
+    "input": "/Users/jikangyi/Downloads/nanobot/head_camera_20260128_165202.avi",
+    "model": "gemini-3-flash-preview",
+    "size_threshold_mb": 180.0,
+    "force_compress": false,
+    "compression_crf": 20,
+    "compression_preset": "medium",
+    "dry_run": true,
+    "keep_cache": false
+  },
+  "result": {
+    "status": "ok",
+    "dry_run": true,
+    "session_dir": "/Users/jikangyi/Downloads/nanobot/output/20260211T181305+0800",
+    "report_path": "/Users/jikangyi/Downloads/nanobot/output/20260211T181305+0800/report.md",
+    "prepared_video_path": "/Users/jikangyi/Downloads/nanobot/output/20260211T181305+0800/cache/prepared.mp4",
+    "prepare_reasons": [
+      "container=.avi",
+      "video_codec=mjpeg"
+    ],
+    "model": "gemini-3-flash-preview"
+  }
+}

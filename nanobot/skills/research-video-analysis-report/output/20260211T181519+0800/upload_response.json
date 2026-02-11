@@ -1,0 +1,18 @@
+{
+  "name": "files/f13d529wp5da",
+  "display_name": null,
+  "mime_type": "video/mp4",
+  "size_bytes": 34238756,
+  "create_time": "2026-02-11T10:15:27.295308+00:00",
+  "expiration_time": "2026-02-13T10:15:26.156220+00:00",
+  "update_time": "2026-02-11T10:15:33.555665+00:00",
+  "sha256_hash": "YjhmMjM1NDAwN2I3NTA5MTc2MzVjMjQ1NWQ1NzliNzczMzVhZjA1OGIwZWY0YzYzNGJiYTlhZmQ0NGY2ZDQyZg==",
+  "uri": "https://generativelanguage.googleapis.com/v1beta/files/f13d529wp5da",
+  "download_uri": null,
+  "state": "ACTIVE",
+  "source": "UPLOADED",
+  "video_metadata": {
+    "videoDuration": "282s"
+  },
+  "error": null
+}

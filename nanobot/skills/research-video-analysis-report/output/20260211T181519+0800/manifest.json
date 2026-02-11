@@ -1,0 +1,23 @@
+{
+  "created_at_beijing": "2026-02-11T18:16:03.979049+08:00",
+  "args": {
+    "input": "/Users/jikangyi/Downloads/nanobot/\u98de\u4e6620260211-141311.mp4",
+    "model": "gemini-3-flash-preview",
+    "size_threshold_mb": 180.0,
+    "force_compress": false,
+    "compression_crf": 20,
+    "compression_preset": "medium",
+    "dry_run": false,
+    "keep_cache": false
+  },
+  "result": {
+    "status": "ok",
+    "dry_run": false,
+    "session_dir": "/Users/jikangyi/Downloads/nanobot/nanobot/skills/research-video-analysis-report/output/20260211T181519+0800",
+    "report_path": "/Users/jikangyi/Downloads/nanobot/nanobot/skills/research-video-analysis-report/output/20260211T181519+0800/report.md",
+    "prepared_video_path": "/Users/jikangyi/Downloads/nanobot/nanobot/skills/research-video-analysis-report/output/20260211T181519+0800/cache/source_1770804919.mp4",
+    "prepare_reasons": [],
+    "uploaded_file_name": "files/f13d529wp5da",
+    "model": "gemini-3-flash-preview"
+  }
+}

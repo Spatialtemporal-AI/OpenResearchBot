@@ -24,6 +24,7 @@ Ingest local path or URL, compress only when needed for upload/compatibility, th
 
 3. Generate structured report
 - The script calls Gemini with a domain-adaptive research report prompt.
+- Default prompt is template-driven from `assets/prompt_research_assistant.md` (`{{TASK}}`/`{{NOTES}}` placeholders).
 - The model infers domain/task confidence inside the same analysis pass.
 - Save output as Markdown report for researchers.
 - Follow schema in `references/report-schema.md`.
