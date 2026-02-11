@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import requests
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 DEFAULT_OUTPUT_ROOT = Path("./output")
@@ -91,65 +92,23 @@ def ffprobe_metadata(video_path: Path, ffprobe_bin: str) -> dict:
     return json.loads(result.stdout)
 
 
-def download_via_ytdlp(url: str, cache_dir: Path) -> Path | None:
-    ytdlp = shutil.which("yt-dlp")
-    if not ytdlp:
-        return None
+def download_via_requests(url: str, cache_dir: Path, timeout_seconds: int = 60) -> Path:
+    parsed = urlparse(url)
+    suffix = Path(parsed.path).suffix.lower() or ".mp4"
+    target = (cache_dir / f"source{suffix}").resolve()
 
-    template = str(cache_dir / "source.%(ext)s")
-    cmd = [
-        ytdlp,
-        "-f",
-        "bv*+ba/b",
-        "--merge-output-format",
-        "mp4",
-        "--no-playlist",
-        "-o",
-        template,
-        url,
-    ]
     try:
-        run_cmd(cmd)
-    except RuntimeError:
-        return None
+        with requests.get(url, stream=True, timeout=timeout_seconds) as response:
+            response.raise_for_status()
+            with target.open("wb") as fp:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        fp.write(chunk)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Failed to download video from URL: {exc}") from exc
 
-    candidates = [
-        path
-        for path in cache_dir.glob("source.*")
-        if path.is_file() and path.suffix not in {".part", ".ytdl"}
-    ]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda item: item.stat().st_mtime)
-
-
-def download_via_ffmpeg(url: str, cache_dir: Path, ffmpeg_bin: str) -> Path:
-    target = cache_dir / "source.mp4"
-    cmd = [
-        ffmpeg_bin,
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        url,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "20",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "160k",
-        "-movflags",
-        "+faststart",
-        str(target),
-    ]
-    run_cmd(cmd)
+    if not target.exists() or target.stat().st_size == 0:
+        raise RuntimeError("Downloaded video is empty.")
     return target
 
 
@@ -174,7 +133,7 @@ def _ascii_safe_copy(local_path: Path, cache_dir: Path) -> Path:
     return target
 
 
-def resolve_source(input_value: str, cache_dir: Path, ffmpeg_bin: str) -> tuple[str, Path]:
+def resolve_source(input_value: str, cache_dir: Path) -> tuple[str, Path]:
     local_path = Path(input_value).expanduser()
     if local_path.exists() and local_path.is_file():
         return "local", _ascii_safe_copy(local_path, cache_dir)
@@ -182,10 +141,7 @@ def resolve_source(input_value: str, cache_dir: Path, ffmpeg_bin: str) -> tuple[
     if not is_url(input_value):
         raise RuntimeError(f"Input is neither a local file nor a valid URL: {input_value}")
 
-    downloaded = download_via_ytdlp(input_value, cache_dir)
-    if downloaded:
-        return "url", downloaded.resolve()
-    return "url", download_via_ffmpeg(input_value, cache_dir, ffmpeg_bin).resolve()
+    return "url", download_via_requests(input_value, cache_dir).resolve()
 
 
 def select_primary_stream(metadata: dict, codec_type: str) -> dict | None:
@@ -507,7 +463,7 @@ def main(argv: list[str] | None = None) -> int:
         cache_dir = session_dir / "cache"
         report_path = session_dir / args.report_name
 
-        source_type, source_video = resolve_source(args.input, cache_dir, ffmpeg_bin)
+        source_type, source_video = resolve_source(args.input, cache_dir)
         source_metadata = ffprobe_metadata(source_video, ffprobe_bin)
         (session_dir / "source_metadata.json").write_text(json.dumps(source_metadata, indent=2) + "\n")
 

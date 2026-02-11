@@ -19,6 +19,7 @@ Ingest local path or URL, compress only when needed for upload/compatibility, th
 2. Prepare video for Gemini
 - Run `scripts/analyze_research_video.py`.
 - Use direct video understanding only.
+- For URL input, the script first downloads the video with streaming HTTP (`requests`) into session cache.
 - If file is large or not upload-friendly, it transcodes to an upload-ready MP4 while preserving resolution/time structure.
 
 3. Generate structured report
