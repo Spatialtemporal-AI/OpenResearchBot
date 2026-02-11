@@ -15,14 +15,14 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
-DEFAULT_OUTPUT_ROOT = Path("/Users/jikangyi/Downloads/nanobot/workspace/output")
+DEFAULT_OUTPUT_ROOT = Path("./output")
 DEFAULT_SIZE_THRESHOLD_MB = 180.0
 DEFAULT_MAX_WAIT_SECONDS = 300
 DEFAULT_POLL_INTERVAL_SECONDS = 3.0
@@ -58,11 +58,17 @@ def is_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def _now_beijing() -> datetime:
+    """Return current time in China Standard Time (UTC+8)."""
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8)))
+
+
 def resolve_session_dir(output_root: Path, session_id: str | None) -> Path:
     output_root = output_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     if not session_id:
-        session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        # Use Beijing time (UTC+8) for session folder naming.
+        session_id = _now_beijing().strftime("%Y%m%dT%H%M%S%z")
     session_dir = output_root / session_id
     if session_dir.exists():
         raise RuntimeError(f"Session already exists: {session_dir}")
@@ -388,7 +394,7 @@ def read_prompt(prompt_file: Path | None, task: str | None, notes: str | None) -
 def write_report(report_path: Path, report_markdown: str, run_info: dict) -> Path:
     header = [
         "# Run Metadata",
-        f"- Generated (UTC): {datetime.now(timezone.utc).isoformat()}",
+        f"- Generated (Beijing): {_now_beijing().isoformat()}",
         f"- Input: {run_info['input']}",
         f"- Source Type: {run_info['source_type']}",
         f"- Model: {run_info['model']}",
@@ -606,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
             shutil.rmtree(session_dir / "cache", ignore_errors=True)
         if session_dir:
             manifest = {
-                "created_at_utc": datetime.now(timezone.utc).isoformat(),
+                "created_at_beijing": _now_beijing().isoformat(),
                 "args": {
                     "input": args.input,
                     "model": args.model,
