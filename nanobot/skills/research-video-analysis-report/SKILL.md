@@ -1,14 +1,13 @@
 ---
-name: vla-video-analysis-report
-description: Analyze robot-arm operation videos for embodied AI / VLA research by directly calling Gemini 2.5 Flash, then generate a structured Markdown diagnosis report with failure causes and optimization suggestions. Use when users provide local video paths or video URLs and ask for run analysis, failure attribution, post-mortem reports, training-data improvements, or next-experiment plans for real-world inference trials.
-description: Analyze robot-arm operation videos for embodied AI / VLA research by directly calling Gemini 3 Flash with the Gemini Files API, then generate a structured Markdown diagnosis report with failure causes and optimization suggestions. Use when users provide local video paths or video URLs and ask for run analysis, failure attribution, post-mortem reports, training-data improvements, or next-experiment plans for real-world inference trials.
+name: research-video-analysis-report
+description: Research-assistant style video understanding for scientists and engineers. Accepts a local video path or URL, lets the model infer the domain during analysis, then calls Gemini via Files API for direct video understanding and generates a structured Markdown report with timeline, key observations, failure/risk analysis, and actionable next-step recommendations.
 ---
 
-# VLA Video Analysis Report
+# Research Video Analysis Report
 
 ## Overview
 
-Use this skill to analyze full-scene robot-arm execution videos by direct video understanding.
+Use this skill to analyze research videos by direct video understanding.
 Ingest local path or URL, compress only when needed for upload/compatibility, then call Gemini via official `google-genai` SDK (which internally uses Files API upload + processing + file reference) to generate a research-grade Markdown report.
 
 ## Workflow
@@ -18,12 +17,13 @@ Ingest local path or URL, compress only when needed for upload/compatibility, th
 - Request input as local video path or URL.
 
 2. Prepare video for Gemini
-- Run `scripts/analyze_robot_video.py`.
+- Run `scripts/analyze_research_video.py`.
 - Use direct video understanding only.
 - If file is large or not upload-friendly, it transcodes to an upload-ready MP4 while preserving resolution/time structure.
 
 3. Generate structured report
-- The script calls Gemini with a robotics-focused report prompt.
+- The script calls Gemini with a domain-adaptive research report prompt.
+- The model infers domain/task confidence inside the same analysis pass.
 - Save output as Markdown report for researchers.
 - Follow schema in `references/report-schema.md`.
 
@@ -48,33 +48,25 @@ pip install google-genai
 Run analysis on local video:
 
 ```bash
-python3 nanobot/skills/vla-video-analysis-report/scripts/analyze_robot_video.py \
-  --input "/absolute/path/to/robot_run.mp4" \
-  --task "Pick up cube and place into bin" \
-  --notes "Policy version vla_rtx_v4, real-robot trial #28"
+python3 nanobot/skills/research-video-analysis-report/scripts/analyze_research_video.py \
+  --input "/absolute/path/to/experiment_run.mp4" \
+  --task "Describe the experiment objective and success criteria" \
+  --notes "Any relevant setup details, model/version info, or anomalies"
 ```
 
 Run analysis on URL video:
 
 ```bash
-python3 nanobot/skills/vla-video-analysis-report/scripts/analyze_robot_video.py \
-  --input "https://example.com/robot_run.mp4" \
-  --task "Open drawer and place object inside"
-```
-
-Attach optional video metadata fps:
-
-```bash
-python3 nanobot/skills/vla-video-analysis-report/scripts/analyze_robot_video.py \
-  --input "/absolute/path/to/robot_run.mp4" \
-  --model "gemini-3-flash-preview"
+python3 nanobot/skills/research-video-analysis-report/scripts/analyze_research_video.py \
+  --input "https://example.com/research_video.mp4" \
+  --task "Summarize key events and risks"
 ```
 
 Control compression threshold:
 
 ```bash
-python3 nanobot/skills/vla-video-analysis-report/scripts/analyze_robot_video.py \
-  --input "/absolute/path/to/robot_run.avi" \
+python3 nanobot/skills/research-video-analysis-report/scripts/analyze_research_video.py \
+  --input "/absolute/path/to/experiment_video.avi" \
   --size-threshold-mb 120 \
   --compression-crf 18 \
   --compression-preset slow
@@ -83,8 +75,8 @@ python3 nanobot/skills/vla-video-analysis-report/scripts/analyze_robot_video.py 
 Use custom prompt file:
 
 ```bash
-python3 nanobot/skills/vla-video-analysis-report/scripts/analyze_robot_video.py \
-  --input "/absolute/path/to/robot_run.mp4" \
+python3 nanobot/skills/research-video-analysis-report/scripts/analyze_research_video.py \
+  --input "/absolute/path/to/experiment_video.mp4" \
   --prompt-file "/absolute/path/to/custom_prompt.md"
 ```
 
@@ -108,16 +100,16 @@ python3 nanobot/skills/vla-video-analysis-report/scripts/analyze_robot_video.py 
   - Failure diagnosis and probable root causes
   - Prioritized optimization suggestions for model/data/control
   - Next experiment plan with pass/fail metrics
-- Save run artifacts under `/Users/jikangyi/Downloads/nanobot/workspace/output/<session-id>/`.
+- Save run artifacts under `nanobot/workspace/output/<session-id>/`.
 
 ## Scripts
 
-- `scripts/analyze_robot_video.py`
+- `scripts/analyze_research_video.py`
   - Main pipeline: ingest -> optional prepare/compress -> `google-genai` `files.upload` -> wait until file active -> `models.generate_content` -> report.
   - Default behavior removes temporary cache after completion.
-- `scripts/cleanup_video_session.py`
   - Manually delete remaining cache or full session.
 
 ## References
 
 - `references/report-schema.md`: standard report sections and writing rules.
+- `references/router-schema.md`: optional future two-stage routing schema (not required by current script).

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Analyze robot-arm videos with Gemini 3 Flash (google-genai SDK)."""
+"""Research-assistant style video analysis with Gemini (google-genai SDK).
+
+Accepts local video path or URL. Uses Gemini Files API direct video understanding.
+Generates a domain-adaptive research report in Markdown.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +22,7 @@ from urllib.parse import urlparse
 
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
-DEFAULT_OUTPUT_ROOT = Path("./nanobot/workspace/output")
+DEFAULT_OUTPUT_ROOT = Path("/Users/jikangyi/Downloads/nanobot/workspace/output")
 DEFAULT_SIZE_THRESHOLD_MB = 180.0
 DEFAULT_MAX_WAIT_SECONDS = 300
 DEFAULT_POLL_INTERVAL_SECONDS = 3.0
@@ -312,46 +316,60 @@ def upload_and_wait_active(
 
 
 def build_default_prompt(task: str | None, notes: str | None) -> str:
-    task_line = task.strip() if task else "Pick-and-place or manipulation validation task"
-    notes_line = notes.strip() if notes else "No extra notes were provided."
-    return f"""
-You are analyzing a full-scene robot-arm execution video for embodied AI / VLA research.
+    task_line = task.strip() if task else "(not provided)"
+    notes_line = notes.strip() if notes else "(not provided)"
 
-Task objective:
+    return f"""
+You are a research assistant analyzing an input video. The video may belong to different scientific/engineering domains.
+
+Your job:
+1) Infer the most likely research/application domain from the video (open-set classification; do not assume a fixed list).
+2) Infer the task and success criteria if possible.
+3) Produce a research-grade Markdown report with timeline, key observations, failure/risk analysis, and actionable next-step recommendations.
+
+User-provided task (may be empty):
 {task_line}
 
-Research notes:
+User-provided notes (may be empty):
 {notes_line}
 
-Return ONLY Markdown. Use this structure exactly:
+Output rules:
+- Return ONLY Markdown.
+- Include timestamps when describing events.
+- Be explicit about uncertainty and what cannot be inferred.
 
-# Robot Arm VLA Execution Analysis Report
+Use this structure:
 
-## 1. Task And Success Criteria
-- Restate the intended task.
-- Define measurable success criteria.
+# Research Video Analysis Report
 
-## 2. Execution Timeline (Key Stages)
-- Provide a concise stage-by-stage timeline.
-- For each stage, include observed arm/tool/object behavior.
+## 1. Summary
 
-## 3. Failure Diagnosis
-- State whether the run succeeded.
-- If failed, identify primary failure point and direct evidence.
-- Include root-cause hypotheses split into:
-  - Perception / state estimation
-  - Action generation / policy behavior
-  - Motion planning / control
-  - Gripper-contact and physics interaction
-  - Environment or setup mismatch
+## 2. Inferred Domain & Task (with confidence)
 
-## 4. Training/Data/Prompt Optimization Suggestions
-- Give actionable suggestions prioritized by expected impact.
-- Tie each suggestion to a diagnosed failure mechanism.
-- Include what data to add, what policy behavior to constrain, and what evaluation to run next.
+## 3. Assumptions / Setup (what can and cannot be inferred)
 
-## 5. Next Experiment Plan
-- Provide 3-5 concrete follow-up experiments with pass/fail criteria.
+## 4. Timeline of Key Events (with timestamps)
+
+## 5. Key Observations (domain-specific)
+
+## 6. Failure / Risk Analysis (evidence-based)
+
+## 7. Actionable Recommendations
+- Data collection / labeling
+- Model / algorithm changes
+- Prompt / instruction changes
+- Method or system changes specific to the inferred domain
+- Evaluation metrics / ablations
+
+## 8. Next Experiment Plan (3-6 items with pass/fail criteria)
+
+## 9. Appendix (video metadata, limitations)
+
+Domain-adaptive guidance:
+- Tailor observations, risks, and recommendations to the inferred domain.
+- For dynamic physical systems: highlight interactions, stability, collisions, recoveries, and stop/termination behavior.
+- For communication or presentation content: extract topic segments, key decisions, and action items.
+- For imaging-heavy scientific content: highlight image quality, artifacts, protocol steps, and reliability limits.
 """.strip()
 
 
@@ -383,13 +401,33 @@ def write_report(report_path: Path, report_markdown: str, run_info: dict) -> Pat
     return report_path
 
 
+def _load_gemini_api_key_from_config() -> str:
+    """Load Gemini API key from ~/.nanobot/config.json.
+
+    Expected structure:
+      {"providers": {"gemini": {"apiKey": "..."}}}
+
+    Returns empty string if not found.
+    """
+    config_path = os.path.expanduser("~/.nanobot/config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f) or {}
+        return (((cfg.get("providers") or {}).get("gemini") or {}).get("apiKey") or "")
+    except FileNotFoundError:
+        return ""
+    except Exception:
+        # Be forgiving: malformed config should not crash the script.
+        return ""
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, help="Local video path or URL")
     parser.add_argument(
         "--api-key",
-        default=os.getenv("GEMINI_API_KEY", ""),
-        help="Gemini API key (default: GEMINI_API_KEY env var)",
+        default="",
+        help="Gemini API key (optional). If omitted, will try GEMINI_API_KEY then ~/.nanobot/config.json providers.gemini.apiKey",
     )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Gemini model id")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
@@ -426,6 +464,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
+
+    # Nanobot-friendly API key resolution: --api-key > env > config.json
+    if not args.api_key:
+        args.api_key = os.getenv("GEMINI_API_KEY", "") or _load_gemini_api_key_from_config()
+
     if args.size_threshold_mb <= 0:
         print("Error: --size-threshold-mb must be > 0", file=sys.stderr)
         return 2
@@ -439,7 +482,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Error: --poll-interval-seconds must be > 0", file=sys.stderr)
         return 2
     if not args.dry_run and not args.api_key:
-        print("Error: missing API key. Set --api-key or GEMINI_API_KEY.", file=sys.stderr)
+        print(
+            "Error: missing API key. Provide --api-key, set GEMINI_API_KEY, or set providers.gemini.apiKey in ~/.nanobot/config.json",
+            file=sys.stderr,
+        )
         return 2
 
     session_dir: Path | None = None
@@ -494,7 +540,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.dry_run:
             dry_report = (
-                "# Robot Arm VLA Execution Analysis Report\n\n"
+                "# Research Video Analysis Report\n\n"
                 "Dry run enabled. Video preprocessing completed, but Gemini API call was skipped.\n"
             )
             write_report(report_path, dry_report, run_info)
