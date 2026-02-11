@@ -100,7 +100,7 @@ python3 nanobot/skills/research-video-analysis-report/scripts/analyze_research_v
   - Failure diagnosis and probable root causes
   - Prioritized optimization suggestions for model/data/control
   - Next experiment plan with pass/fail metrics
-- Save run artifacts under `nanobot/workspace/output/<session-id>/`.
+- Save run artifacts under `nanobot/skills/research-video-analysis-report/output/<session-id>/`.
 
 ## Scripts
 
