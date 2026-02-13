@@ -21,4 +21,5 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `weather` | Get weather info using wttr.in and Open-Meteo |
 | `summarize` | Summarize URLs, files, and YouTube videos |
 | `tmux` | Remote-control tmux sessions |
+| `research-video-analysis-report` | Analyze research videos with Gemini Files API and generate structured Markdown reports |
 | `skill-creator` | Create new skills |
