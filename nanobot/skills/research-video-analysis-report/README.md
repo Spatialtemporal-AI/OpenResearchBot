@@ -80,7 +80,7 @@ nanobot agent
 或者直接就说：
 ```text
 请使用 视频分析 skill 分析视频/path/to/experiment_video.mp4并生成报告。
-```text
+```
 
 **方式 B：单次命令模式（`-m`）**
 ```bash
