@@ -118,7 +118,6 @@ class BaseChannel(ABC):
             media=media or [],
             metadata=metadata or {}
         )
-        
         await self.bus.publish_inbound(msg)
     
     @property

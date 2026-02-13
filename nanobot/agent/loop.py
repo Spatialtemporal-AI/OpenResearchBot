@@ -19,6 +19,7 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.subagent import SubagentManager
+from nanobot.agent.tools.jobs import BackgroundJobStartTool, BackgroundJobStatusTool
 from nanobot.session.manager import SessionManager
 
 
@@ -84,12 +85,14 @@ class AgentLoop:
         self.tools.register(EditFileTool(allowed_dir=allowed_dir))
         self.tools.register(ListDirTool(allowed_dir=allowed_dir))
         
-        # Shell tool
-        self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
-            timeout=self.exec_config.timeout,
-            restrict_to_workspace=self.restrict_to_workspace,
-        ))
+        # Shell tool (synchronous, with timeout)
+        self.tools.register(
+            ExecTool(
+                working_dir=str(self.workspace),
+                timeout=self.exec_config.timeout,
+                restrict_to_workspace=self.restrict_to_workspace,
+            )
+        )
         
         # Web tools
         self.tools.register(WebSearchTool(api_key=self.brave_api_key))
@@ -98,6 +101,11 @@ class AgentLoop:
         # Message tool
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)
         self.tools.register(message_tool)
+
+        # Background job tools
+        bg_start_tool = BackgroundJobStartTool(bus=self.bus)
+        self.tools.register(bg_start_tool)
+        self.tools.register(BackgroundJobStatusTool())
         
         # Spawn tool (for subagents)
         spawn_tool = SpawnTool(manager=self.subagents)
@@ -174,6 +182,10 @@ class AgentLoop:
         cron_tool = self.tools.get("cron")
         if isinstance(cron_tool, CronTool):
             cron_tool.set_context(msg.channel, msg.chat_id)
+
+        bg_start_tool = self.tools.get("background_job_start")
+        if isinstance(bg_start_tool, BackgroundJobStartTool):
+            bg_start_tool.set_context(msg.channel, msg.chat_id)
         
         # Build initial messages (use get_history for LLM-formatted messages)
         messages = self.context.build_messages(
@@ -183,21 +195,18 @@ class AgentLoop:
             channel=msg.channel,
             chat_id=msg.chat_id,
         )
-        
         # Agent loop
         iteration = 0
         final_content = None
         
         while iteration < self.max_iterations:
             iteration += 1
-            
             # Call LLM
             response = await self.provider.chat(
                 messages=messages,
                 tools=self.tools.get_definitions(),
                 model=self.model
             )
-            
             # Handle tool calls
             if response.has_tool_calls:
                 # Add assistant message with tool calls
@@ -229,7 +238,6 @@ class AgentLoop:
                 # No tool calls, we're done
                 final_content = response.content
                 break
-        
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
         
@@ -283,6 +291,10 @@ class AgentLoop:
         cron_tool = self.tools.get("cron")
         if isinstance(cron_tool, CronTool):
             cron_tool.set_context(origin_channel, origin_chat_id)
+
+        bg_start_tool = self.tools.get("background_job_start")
+        if isinstance(bg_start_tool, BackgroundJobStartTool):
+            bg_start_tool.set_context(origin_channel, origin_chat_id)
         
         # Build messages with the announce content
         messages = self.context.build_messages(
