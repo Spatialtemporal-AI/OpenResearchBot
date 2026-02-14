@@ -63,6 +63,31 @@ Use the `training_tracker` tool to track training experiments:
 
 When the user starts a new training experiment, guide them to record all relevant information.
 
+### 自动训练记录（Auto Tracker）
+
+系统提供了 `nanobot.tracker` 模块，用户可以在训练脚本中加入几行代码即可自动记录训练。
+自动记录的数据和手动通过 `training_tracker` 工具创建的记录存储在同一个 JSON 文件中，Dashboard 和 Agent 都能实时看到。
+
+自动记录的训练运行会在 `_meta` 字段中包含 `"auto_tracked": true`，Agent 可以据此区分手动和自动记录的运行。
+
+当用户询问如何自动记录训练时，提供以下指导：
+
+**PyTorch 原生循环：**
+```python
+from nanobot.tracker import NanobotTracker
+
+with NanobotTracker(name="实验名称", model="模型名", hyperparams={"lr": 2e-5}) as tracker:
+    for epoch in range(100):
+        loss = train_one_epoch()
+        tracker.log(epoch=epoch, loss=loss)
+```
+
+**HuggingFace Trainer：**
+```python
+from nanobot.tracker import NanobotHFCallback
+trainer = Trainer(model=model, args=args, callbacks=[NanobotHFCallback(name="实验名")])
+```
+
 ## Feishu Channel Notes
 
 When responding through the Feishu channel, follow these rules:

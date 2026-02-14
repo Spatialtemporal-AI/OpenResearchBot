@@ -33,7 +33,7 @@ OpenResearchBot 是在 [nanobot](https://github.com/HKUDS/nanobot) 超轻量 AI 
 | 📊 纯文本可视化 | `nanobot/agent/tools/text_viz.py` | 终端/聊天中渲染柱状图、折线图、Sparkline |
 | 🌐 HTML 仪表盘 | `nanobot/agent/tools/html_dashboard.py` | 基于 Chart.js 的交互式可视化仪表盘 |
 | 🖥️ CLI 工具 | `nanobot/cli_tracker.py` | 独立命令行入口，含实时仪表盘服务器 |
-| 🔴 Python API | `nanobot/tracker_api.py` | 训练脚本直接导入，实时写入数据 |
+| 🔴 自动训练记录 | `nanobot/tracker.py` | 训练脚本加几行代码即可自动记录，支持 PyTorch / HuggingFace / Lightning |
 | 💬 飞书机器人 | `nanobot/channels/feishu.py` | 飞书/Lark 频道，WebSocket 长连接，卡片消息 |
 | 🚀 飞书启动器 | `nanobot/feishu_bot.py` | 独立飞书 Bot 入口，含实时仪表盘服务 |
 
@@ -75,22 +75,70 @@ Agent：📊 已记录指标 → run-a1b2c3  loss: 0.35 | success_rate: 72.0%
 | ⚡ 快捷命令 | `/help` `/tasks` `/trains` `/dashboard` `/status` |
 | 📊 实时仪表盘 | 启动时自动开启 HTTP 仪表盘服务，LAN 内手机可访问 |
 
-## 🔴 Python API
+## 🔴 自动训练记录
 
-训练脚本中直接 `import` 使用，无需启动 Agent，数据自动写入 JSON，实时仪表盘立即可见。
+在训练脚本中加几行代码，即可自动记录训练全过程。**无需启动 Agent**，数据直接写入 JSON，Dashboard 和 Agent 都能实时看到。
+
+### PyTorch 原生训练循环
 
 ```python
-from nanobot.tracker_api import ResearchTracker
+from nanobot.tracker import NanobotTracker
 
-tracker = ResearchTracker()
-run_id = tracker.create_run("OpenVLA-7B finetune", model="OpenVLA-7B", dataset="bridge_v2",
-    hyperparams={"lr": 2e-5, "batch_size": 16, "epochs": 100},
-    vla_config={"action_space": "7-DoF delta EEF", "embodiment": "WidowX"})
+# 方式一：with 语句（推荐，异常时自动标记 failed，正常退出标记 completed）
+with NanobotTracker(
+    name="OpenVLA-7B finetune Bridge",
+    model="OpenVLA-7B",
+    dataset="bridge_v2",
+    hyperparams={"lr": 2e-5, "batch_size": 32, "epochs": 100},
+    # gpu_info 自动检测，vla_config 可选
+) as tracker:
+    for epoch in range(100):
+        loss = train_one_epoch()
+        tracker.log(epoch=epoch, loss=loss)                          # 记录指标
+        tracker.log(epoch=epoch, eval_loss=val_loss, success_rate=sr) # 可多次调用
+        tracker.log_checkpoint(f"ckpt/epoch_{epoch}.pt")             # 记录 checkpoint
 
+# 方式二：手动管理
+tracker = NanobotTracker(name="my-exp", model="OpenVLA-7B")
 for epoch in range(100):
-    tracker.log(run_id, epoch=epoch, loss=train_one_epoch(), val_loss=evaluate())
-tracker.finish_run(run_id)
+    tracker.log(epoch=epoch, loss=loss)
+tracker.finish()  # 或 tracker.fail() / tracker.stop()
 ```
+
+### HuggingFace Trainer 集成
+
+```python
+from nanobot.tracker import NanobotHFCallback
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    callbacks=[NanobotHFCallback(name="my-experiment", model="OpenVLA-7B")],
+)
+trainer.train()  # 自动记录所有 loss、eval metrics、checkpoint
+```
+
+### PyTorch Lightning 集成
+
+```python
+from nanobot.tracker import NanobotLightningCallback
+
+trainer = pl.Trainer(
+    callbacks=[NanobotLightningCallback(name="my-exp", model="OpenVLA-7B")],
+)
+trainer.fit(model)  # 自动记录每个 epoch 的指标
+```
+
+### 功能特性
+
+| 特性 | 说明 |
+|------|------|
+| 🔍 自动检测 GPU | 自动获取 GPU 型号和显存信息 |
+| 🛡️ 异常安全 | with 语句或 atexit 兜底，进程崩溃也能记录状态 |
+| 📝 灵活日志 | 任意 key-value 指标，不限制字段名 |
+| ⚡ 写入频率可控 | `log_every_n_steps` 控制磁盘写入频率 |
+| 🔄 与 Agent 互通 | 数据和手动创建的记录在同一文件，Agent 可查询/对比 |
+| 🌐 Dashboard 实时可见 | 启动 live dashboard 后自动刷新显示 |
 
 ---
 
@@ -98,7 +146,7 @@ tracker.finish_run(run_id)
 
 ```
 nanobot/
-├── tracker_api.py            # Python API（训练脚本直接导入）
+├── tracker.py               # 🔴 自动训练记录（PyTorch/HF/Lightning）
 ├── feishu_bot.py             # 飞书 Bot 独立入口
 ├── cli_tracker.py            # CLI 工具（含 live 实时服务器）
 ├── agent/tools/
