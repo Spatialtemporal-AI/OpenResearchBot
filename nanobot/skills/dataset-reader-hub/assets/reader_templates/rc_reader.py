@@ -13,13 +13,18 @@ import json
 import math
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import logging
 import cv2
 import numpy as np
 import time
 from tqdm import tqdm
-from olmo.data.dataset import Dataset 
+try:
+    from olmo.data.dataset import Dataset
+except Exception:
+    # Allow inspect mode to run without full training environment.
+    class Dataset:  # type: ignore[override]
+        pass
 
 def load_jsonl(path: Path) -> List[Dict]:
     with path.open("r", encoding="utf-8") as f:
@@ -981,6 +986,151 @@ def visualize_dataset_legacy(reader, frame_interval=2):
     end_time = time.time()
     print(f"Time taken: {end_time - start_time} seconds")
 
+
+def _inspect_shape_of_list(value: Any) -> List[int]:
+    dims: List[int] = []
+    cur = value
+    while isinstance(cur, list):
+        dims.append(len(cur))
+        if not cur:
+            break
+        cur = cur[0]
+    return dims
+
+
+def _inspect_leaf_type(value: Any) -> str:
+    cur = value
+    while isinstance(cur, list) and cur:
+        cur = cur[0]
+    if isinstance(cur, list):
+        return "list"
+    return type(cur).__name__
+
+
+def _inspect_value_signature(value: Any) -> str:
+    if isinstance(value, list):
+        dims = _inspect_shape_of_list(value)
+        dims_str = "x".join(str(d) for d in dims) if dims else "empty"
+        return f"list[{dims_str}]<{_inspect_leaf_type(value)}>"
+    if isinstance(value, dict):
+        return f"dict<{len(value)} keys>"
+    return f"scalar<{type(value).__name__}>"
+
+
+def _inspect_state_jsonl(path: Path, max_lines: int) -> Dict[str, Any]:
+    key_signatures: Dict[str, set] = {}
+    sampled_lines = 0
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if sampled_lines >= max_lines:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            sampled_lines += 1
+            if not isinstance(payload, dict):
+                continue
+            for k, v in payload.items():
+                key_signatures.setdefault(k, set()).add(_inspect_value_signature(v))
+    return {
+        "file": path.name,
+        "sampled_lines": sampled_lines,
+        "keys": {k: sorted(list(v)) for k, v in sorted(key_signatures.items())},
+    }
+
+
+def inspect_dataset_structure(
+    dataset_path: str,
+    env_names: Optional[List[str]] = None,
+    max_tasks: int = 3,
+    max_episodes: int = 3,
+    max_state_lines: int = 2,
+) -> Dict[str, Any]:
+    root = Path(dataset_path).expanduser().resolve()
+    if not root.exists():
+        raise FileNotFoundError(f"Dataset path does not exist: {root}")
+
+    if (root / "meta" / "task_info.json").exists():
+        task_dirs = [root]
+    else:
+        task_dirs = sorted(
+            p for p in root.iterdir() if p.is_dir() and (p / "meta" / "task_info.json").exists()
+        )
+
+    if env_names:
+        env_set = set(env_names)
+        task_dirs = [p for p in task_dirs if p.name in env_set]
+
+    if not task_dirs:
+        raise ValueError("No valid task folders found (expecting meta/task_info.json).")
+
+    report: Dict[str, Any] = {
+        "dataset_path": str(root),
+        "sample_limits": {
+            "max_tasks": max_tasks,
+            "max_episodes_per_task": max_episodes,
+            "max_state_lines_per_file": max_state_lines,
+        },
+        "tasks": [],
+    }
+
+    for task_dir in task_dirs[: max(1, max_tasks)]:
+        with (task_dir / "meta" / "task_info.json").open("r", encoding="utf-8") as f:
+            task_info = json.load(f)
+
+        data_dir = task_dir / "data"
+        episode_dirs = []
+        if data_dir.exists():
+            episode_dirs = sorted(
+                p for p in data_dir.iterdir() if p.is_dir() and p.name.startswith("episode_")
+            )
+
+        merged_schema: Dict[str, set] = {}
+        sampled_payloads = []
+        for ep_dir in episode_dirs[: max(1, max_episodes)]:
+            ep_meta_path = ep_dir / "meta" / "episode_meta.json"
+            episode_meta = {}
+            if ep_meta_path.exists():
+                with ep_meta_path.open("r", encoding="utf-8") as f:
+                    episode_meta = json.load(f)
+
+            states_dir = ep_dir / "states"
+            state_files = sorted(states_dir.glob("*.jsonl")) if states_dir.exists() else []
+            state_summaries = [_inspect_state_jsonl(p, max_lines=max(1, max_state_lines)) for p in state_files]
+
+            for summary in state_summaries:
+                for k, signatures in summary["keys"].items():
+                    merged_schema.setdefault(k, set()).update(signatures)
+
+            sampled_payloads.append(
+                {
+                    "episode": ep_dir.name,
+                    "episode_meta": {
+                        "episode_index": episode_meta.get("episode_index"),
+                        "frames": episode_meta.get("frames"),
+                        "start_time": episode_meta.get("start_time"),
+                        "end_time": episode_meta.get("end_time"),
+                    },
+                    "states": state_summaries,
+                }
+            )
+
+        report["tasks"].append(
+            {
+                "task_dir": str(task_dir),
+                "task_name": task_info.get("task_desc", {}).get("task_name", task_dir.name),
+                "prompt": task_info.get("task_desc", {}).get("prompt"),
+                "robot_id": task_info.get("robot_id"),
+                "video_info": task_info.get("video_info", {}),
+                "total_episodes": len(episode_dirs),
+                "sampled_episodes": sampled_payloads,
+                "merged_state_schema": {k: sorted(list(v)) for k, v in sorted(merged_schema.items())},
+            }
+        )
+
+    return report
+
 def main():
     """
     Example 1 (单个视频):
@@ -1017,14 +1167,14 @@ def main():
             --output_dir outputs/videos
     """
     parser = argparse.ArgumentParser(description="RoboChallenge Dataset Reader")
-    parser.add_argument("--mode", choices=["read", "stats", "visualize"], required=True, help="read: sample data; stats: compute statistics; visualize: export trajectory video")
+    parser.add_argument("--mode", choices=["read", "stats", "visualize", "inspect"], required=True, help="read: sample data; stats: compute statistics; visualize: export trajectory video; inspect: lightweight schema summary")
     parser.add_argument("--dataset_path", type=str, required=True, help="Path to RoboChallenge dataset root (task folder or root of tasks)")
     parser.add_argument(
         "--embodiment",
         type=str,
         choices=list(RoboChallengeDatasetReader.EMBODIMENT_CONFIGS.keys()),
         help="Embodiment to include",
-        required=True
+        required=False
     )
     parser.add_argument("--env_name", type=str, nargs="+", help="Task name(s) to include")
     parser.add_argument("--control_type", type=str, choices=list(RoboChallengeDatasetReader.CONTROL_CHOICES)+[None,''], default=None)
@@ -1051,7 +1201,27 @@ def main():
                         help="Frame interval for video rendering (visualize mode)")
     parser.add_argument("--max_action_dims", type=int, default=14, 
                         help="Max action dimensions to visualize (visualize mode)")
+    parser.add_argument("--inspect_max_tasks", type=int, default=1,
+                        help="Max tasks to inspect in inspect mode")
+    parser.add_argument("--inspect_max_episodes", type=int, default=1,
+                        help="Max episodes per task to inspect in inspect mode")
+    parser.add_argument("--inspect_max_state_lines", type=int, default=2,
+                        help="Max lines per states*.jsonl to sample in inspect mode")
     args = parser.parse_args()
+
+    if args.mode == "inspect":
+        report = inspect_dataset_structure(
+            dataset_path=args.dataset_path,
+            env_names=args.env_name,
+            max_tasks=args.inspect_max_tasks,
+            max_episodes=args.inspect_max_episodes,
+            max_state_lines=args.inspect_max_state_lines,
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+
+    if not args.embodiment:
+        raise ValueError("--embodiment is required for read/stats/visualize modes")
 
     reader = RoboChallengeDatasetReader(
         dataset_path=args.dataset_path,

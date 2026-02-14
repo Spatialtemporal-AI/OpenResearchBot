@@ -12,15 +12,41 @@ import h5py
 import numpy as np
 import argparse
 import json
+from pathlib import Path
 from collections import defaultdict
 from tqdm import tqdm
-from typing import Dict, List, Optional, Tuple
-from olmo.data.vla.utils import NormalizationType
-from olmo.data.dataset import Dataset 
-if 'NORM_STATS_PATH' in os.environ:
-    NORM_STATS_PATH = os.environ['NORM_STATS_PATH']
-else:
-    raise ValueError("NORM_STATS_PATH is not set")
+from typing import Any, Dict, List, Optional, Tuple
+from enum import Enum
+try:
+    from olmo.data.vla.utils import NormalizationType
+except Exception:
+    # Allow inspect mode to run without full training environment.
+    class NormalizationType(Enum):
+        NORMAL = "normal"
+        BOUNDS = "bounds"
+        BOUNDS_Q99 = "bounds_q99"
+try:
+    from olmo.data.dataset import Dataset
+except Exception:
+    # Allow inspect mode to run without full training environment.
+    class Dataset:  # type: ignore[override]
+        pass
+
+NORM_STATS_PATH = os.environ.get("NORM_STATS_PATH")
+
+
+def _require_norm_stats_path() -> str:
+    if not NORM_STATS_PATH:
+        raise ValueError("NORM_STATS_PATH is not set")
+    return NORM_STATS_PATH
+
+
+def _to_jsonable(x: Any) -> Any:
+    if isinstance(x, np.generic):
+        return x.item()
+    if isinstance(x, np.ndarray):
+        return x.tolist()
+    return x
 
 def normalize_action_and_proprio(traj: Dict, metadata: Dict,keys_to_normalize:Dict, normalization_type: NormalizationType):  
     """Normalizes the action and proprio fields of a trajectory using the given metadata."""  
@@ -198,6 +224,7 @@ class RoboMINDDatasetReader(Dataset):
         self.camera_sensors = self.robot_config['camera_sensors']
         self.arms = self.robot_config['arms']
         self.controls = self.robot_config['controls']
+        self.norm_stats_path = _require_norm_stats_path()
         
         # 文件缓存
         self._file_cache = {}
@@ -206,7 +233,7 @@ class RoboMINDDatasetReader(Dataset):
         # 构建数据集索引：[(env_name, trajectory_id, file_path, frame_idx, num_frames, episode_index), ...]
         self._index: List[Tuple[str, str, str, int, int, int]] = []
         self._build_index(env_names, init_index)
-        self.norm_stats = json.load(open(NORM_STATS_PATH+'/robomind.json'))
+        self.norm_stats = json.load(open(self.norm_stats_path + '/robomind.json'))
         self.norm_stats = self.norm_stats['per_embodiment_stats'][self.embodiment]['stats']
         
     def _build_index(self, env_names: Optional[List[str]] = None, init_index=False):
@@ -219,7 +246,7 @@ class RoboMINDDatasetReader(Dataset):
         print(f"Building dataset index for embodiment: {self.embodiment}")
         
         if not init_index:
-            with open(NORM_STATS_PATH+f'/robomind_{self.dataset_path.replace("/", "_")}_{self.embodiment}_index.json', 'r') as f:
+            with open(self.norm_stats_path + f'/robomind_{self.dataset_path.replace("/", "_")}_{self.embodiment}_index.json', 'r') as f:
                 self._index = json.load(f)['indexs']
             print(f"Index built: {len(self._index)} frames")
             return
@@ -273,7 +300,7 @@ class RoboMINDDatasetReader(Dataset):
                     continue
         
         print(f"Index built: {len(self._index)} frames from {len(env_names)} environments")
-        with open(NORM_STATS_PATH+f'/robomind_{self.dataset_path.replace("/", "_")}_{self.embodiment}_index.json', 'w') as f:
+        with open(self.norm_stats_path + f'/robomind_{self.dataset_path.replace("/", "_")}_{self.embodiment}_index.json', 'w') as f:
             json.dump({'indexs':self._index}, f)
             
     def __len__(self) -> int:
@@ -957,6 +984,135 @@ class RoboMINDDatasetReader(Dataset):
         
         return all_videos
 
+def _inspect_hdf5_schema(file_path: Path, max_datasets: int) -> Dict[str, Any]:
+    datasets: List[Dict[str, Any]] = []
+    attrs: Dict[str, Any] = {}
+    with h5py.File(str(file_path), "r") as f:
+        attrs = {k: _to_jsonable(v) for k, v in f.attrs.items()}
+
+        def visitor(name: str, obj: Any) -> None:
+            if isinstance(obj, h5py.Dataset):
+                datasets.append(
+                    {
+                        "path": name,
+                        "shape": list(obj.shape),
+                        "dtype": str(obj.dtype),
+                    }
+                )
+
+        f.visititems(visitor)
+
+    return {
+        "file": str(file_path),
+        "attrs": attrs,
+        "dataset_count": len(datasets),
+        "datasets": datasets[: max(1, max_datasets)],
+        "datasets_truncated": len(datasets) > max(1, max_datasets),
+    }
+
+
+def inspect_robomind_dataset_structure(
+    dataset_path: str,
+    embodiments: Optional[List[str]] = None,
+    env_names: Optional[List[str]] = None,
+    max_embodiments: int = 3,
+    max_envs: int = 3,
+    max_episodes: int = 2,
+    max_hdf5_datasets: int = 30,
+) -> Dict[str, Any]:
+    root = Path(dataset_path).expanduser().resolve()
+    if not root.exists():
+        raise FileNotFoundError(f"Dataset path does not exist: {root}")
+
+    available_embodiments = sorted(
+        [
+            d.name
+            for d in root.iterdir()
+            if d.is_dir() and d.name in RoboMINDDatasetReader.ROBOT_CONFIGS
+        ]
+    )
+    if not available_embodiments:
+        raise ValueError(
+            f"No known RoboMIND embodiment folders under {root}. "
+            f"Expected one of {list(RoboMINDDatasetReader.ROBOT_CONFIGS.keys())}"
+        )
+
+    selected_embodiments = available_embodiments
+    if embodiments:
+        embodiment_set = set(embodiments)
+        selected_embodiments = [e for e in available_embodiments if e in embodiment_set]
+        if not selected_embodiments:
+            raise ValueError(f"None of requested embodiments found: {embodiments}")
+
+    report: Dict[str, Any] = {
+        "dataset_path": str(root),
+        "sample_limits": {
+            "max_embodiments": max_embodiments,
+            "max_envs_per_embodiment": max_envs,
+            "max_episodes_per_env": max_episodes,
+            "max_hdf5_datasets_per_file": max_hdf5_datasets,
+        },
+        "available_embodiments": available_embodiments,
+        "embodiments": [],
+    }
+
+    env_filter = set(env_names) if env_names else None
+
+    for embodiment in selected_embodiments[: max(1, max_embodiments)]:
+        emb_path = root / embodiment
+        env_dirs = sorted([d for d in emb_path.iterdir() if d.is_dir()], key=lambda p: p.name)
+        if env_filter is not None:
+            env_dirs = [d for d in env_dirs if d.name in env_filter]
+
+        emb_summary: Dict[str, Any] = {
+            "embodiment": embodiment,
+            "path": str(emb_path),
+            "total_envs": len(env_dirs),
+            "sampled_envs": [],
+        }
+
+        for env_dir in env_dirs[: max(1, max_envs)]:
+            train_dir = env_dir / "success_episodes" / "train"
+            trajectory_dirs = (
+                sorted([d for d in train_dir.iterdir() if d.is_dir()], key=lambda p: p.name)
+                if train_dir.exists()
+                else []
+            )
+            env_summary: Dict[str, Any] = {
+                "env_name": env_dir.name,
+                "train_dir": str(train_dir),
+                "total_episodes": len(trajectory_dirs),
+                "sampled_episodes": [],
+            }
+
+            for traj_dir in trajectory_dirs[: max(1, max_episodes)]:
+                data_dir = traj_dir / "data"
+                hdf5_files = sorted(data_dir.glob("*.hdf5")) if data_dir.exists() else []
+                if not hdf5_files:
+                    env_summary["sampled_episodes"].append(
+                        {
+                            "trajectory_id": traj_dir.name,
+                            "hdf5_files": [],
+                        }
+                    )
+                    continue
+
+                env_summary["sampled_episodes"].append(
+                    {
+                        "trajectory_id": traj_dir.name,
+                        "hdf5_files": [str(p) for p in hdf5_files],
+                        "hdf5_schema": _inspect_hdf5_schema(
+                            hdf5_files[0], max_datasets=max_hdf5_datasets
+                        ),
+                    }
+                )
+
+            emb_summary["sampled_envs"].append(env_summary)
+
+        report["embodiments"].append(emb_summary)
+
+    return report
+
 
 def main():
     """
@@ -964,9 +1120,9 @@ def main():
     python olmo/data/vla/robomind_datasets.py --mode read --embodiment h5_agilex_3rgb --dataset_path /vast/users/xiaodan/zhangkaidong/datasets/robomind/benchmark1_1_compressed
     """
     parser = argparse.ArgumentParser(description="RoboMIND Dataset Reader")
-    parser.add_argument("--mode", type=str, choices=["read", "stats", "visualize", "build_index"], required=True,
-                       help="Mode: 'read' for reading data, 'stats' for computing statistics, 'visualize' for generating videos")
-    parser.add_argument("--embodiment", type=str, nargs="+", required=True,
+    parser.add_argument("--mode", type=str, choices=["read", "stats", "visualize", "build_index", "inspect"], required=True,
+                       help="Mode: 'read' for reading data, 'stats' for computing statistics, 'visualize' for generating videos, 'inspect' for lightweight schema summary")
+    parser.add_argument("--embodiment", type=str, nargs="+", required=False,
                        choices=list(RoboMINDDatasetReader.ROBOT_CONFIGS.keys()),
                        help="Robot embodiment type(s). Can specify multiple embodiments.")
     parser.add_argument("--dataset_path", type=str, required=True,
@@ -990,10 +1146,36 @@ def main():
     parser.add_argument("--resize",default=False, action="store_true")
     parser.add_argument("--resolution", type=int, nargs=2, default=[128, 128],
                        help="Image resolution (width height)")
+    parser.add_argument("--inspect_max_embodiments", type=int, default=5,
+                        help="Max embodiments to inspect in inspect mode")
+    parser.add_argument("--inspect_max_envs", type=int, default=1,
+                        help="Max envs per embodiment to inspect in inspect mode")
+    parser.add_argument("--inspect_max_episodes", type=int, default=1,
+                        help="Max episodes per env to inspect in inspect mode")
+    parser.add_argument("--inspect_max_hdf5_datasets", type=int, default=3,
+                        help="Max dataset entries shown per HDF5 file in inspect mode")
     
     args = parser.parse_args()
+
+    if args.mode == "inspect":
+        report = inspect_robomind_dataset_structure(
+            dataset_path=args.dataset_path,
+            embodiments=args.embodiment,
+            env_names=args.env_name,
+            max_embodiments=args.inspect_max_embodiments,
+            max_envs=args.inspect_max_envs,
+            max_episodes=args.inspect_max_episodes,
+            max_hdf5_datasets=args.inspect_max_hdf5_datasets,
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+
     if not args.resize:
         args.resolution = None
+
+    if not args.embodiment:
+        raise ValueError("--embodiment is required for read/stats/visualize/build_index modes")
+
     # 将 embodiment 转换为列表
     embodiments = args.embodiment if isinstance(args.embodiment, list) else [args.embodiment]
     if args.mode == "build_index":

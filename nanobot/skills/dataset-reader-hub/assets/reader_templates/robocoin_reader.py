@@ -10,14 +10,22 @@ Output dict keys:
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import re
-from typing import Any, Dict, List, Optional
 import inspect
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from olmo.data.dataset import Dataset
+try:
+    from olmo.data.dataset import Dataset
+except Exception:
+    # Allow inspect mode to run without full training environment.
+    class Dataset:  # type: ignore[override]
+        pass
 
 try:
     from lerobot.datasets.lerobot_dataset import (
@@ -100,6 +108,184 @@ def _to_scalar(x: Any) -> Optional[float]:
     if isinstance(arr, np.ndarray) and arr.size == 1:
         return float(arr.reshape(-1)[0])
     return None
+
+
+def _inspect_shape_of_list(value: Any) -> List[int]:
+    dims: List[int] = []
+    cur = value
+    while isinstance(cur, list):
+        dims.append(len(cur))
+        if not cur:
+            break
+        cur = cur[0]
+    return dims
+
+
+def _inspect_leaf_type(value: Any) -> str:
+    cur = value
+    while isinstance(cur, list) and cur:
+        cur = cur[0]
+    if isinstance(cur, list):
+        return "list"
+    return type(cur).__name__
+
+
+def _inspect_value_signature(value: Any) -> str:
+    if isinstance(value, list):
+        dims = _inspect_shape_of_list(value)
+        dims_str = "x".join(str(d) for d in dims) if dims else "empty"
+        return f"list[{dims_str}]<{_inspect_leaf_type(value)}>"
+    if isinstance(value, dict):
+        return f"dict<{len(value)} keys>"
+    return f"scalar<{type(value).__name__}>"
+
+
+def _inspect_jsonl(path: Path, max_lines: int) -> Dict[str, Any]:
+    key_signatures: Dict[str, set] = {}
+    sampled_lines = 0
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if sampled_lines >= max_lines:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            sampled_lines += 1
+            if not isinstance(payload, dict):
+                continue
+            for k, v in payload.items():
+                key_signatures.setdefault(k, set()).add(_inspect_value_signature(v))
+    return {
+        "file": str(path),
+        "sampled_lines": sampled_lines,
+        "keys": {k: sorted(list(v)) for k, v in sorted(key_signatures.items())},
+    }
+
+
+def _discover_robocoin_task_dirs(root: Path, env_names: Optional[List[str]] = None) -> List[Path]:
+    if not root.exists():
+        raise FileNotFoundError(f"Dataset path does not exist: {root}")
+
+    # Single task folder
+    if (root / "meta").exists() and (root / "data").exists():
+        task_dirs = [root]
+    else:
+        task_dirs = [
+            p
+            for p in root.iterdir()
+            if p.is_dir() and (p / "meta").exists() and (p / "data").exists()
+        ]
+
+    if env_names:
+        env_set = set(env_names)
+        task_dirs = [p for p in task_dirs if p.name in env_set]
+
+    return sorted(task_dirs, key=lambda p: p.name)
+
+
+def _resolve_single_robocoin_task(dataset_path: str, env_names: Optional[List[str]]) -> Path:
+    task_dirs = _discover_robocoin_task_dirs(Path(dataset_path).expanduser().resolve(), env_names)
+    if not task_dirs:
+        raise ValueError("No valid RoboCOIN task folder found.")
+    if len(task_dirs) > 1:
+        raise ValueError(
+            "read/stats mode expects a single task folder. "
+            "Pass a task path directly or specify one --env_name."
+        )
+    return task_dirs[0]
+
+
+def inspect_robocoin_dataset_structure(
+    dataset_path: str,
+    env_names: Optional[List[str]] = None,
+    max_tasks: int = 3,
+    max_jsonl_lines: int = 2,
+    max_chunks: int = 3,
+    max_episode_files: int = 5,
+    max_feature_keys: int = 30,
+) -> Dict[str, Any]:
+    root = Path(dataset_path).expanduser().resolve()
+    task_dirs = _discover_robocoin_task_dirs(root, env_names)
+    if not task_dirs:
+        raise ValueError("No valid RoboCOIN task folders found.")
+
+    report: Dict[str, Any] = {
+        "dataset_path": str(root),
+        "sample_limits": {
+            "max_tasks": max_tasks,
+            "max_jsonl_lines": max_jsonl_lines,
+            "max_chunks": max_chunks,
+            "max_episode_files_per_chunk": max_episode_files,
+            "max_feature_keys": max_feature_keys,
+        },
+        "tasks": [],
+    }
+
+    for task_dir in task_dirs[: max(1, max_tasks)]:
+        task_report: Dict[str, Any] = {
+            "task_dir": str(task_dir),
+            "task_name": task_dir.name,
+        }
+
+        meta_dir = task_dir / "meta"
+        info_path = meta_dir / "info.json"
+        if info_path.exists():
+            with info_path.open("r", encoding="utf-8") as f:
+                task_report["info_json"] = json.load(f)
+
+        for jsonl_name in ("tasks.jsonl", "episodes.jsonl"):
+            p = meta_dir / jsonl_name
+            if p.exists():
+                task_report[jsonl_name] = _inspect_jsonl(p, max_lines=max(1, max_jsonl_lines))
+
+        data_dir = task_dir / "data"
+        chunk_dirs = sorted([p for p in data_dir.glob("chunk-*") if p.is_dir()], key=lambda p: p.name)
+        task_report["total_chunks"] = len(chunk_dirs)
+        sampled_chunks = []
+        for chunk_dir in chunk_dirs[: max(1, max_chunks)]:
+            episode_files = sorted(chunk_dir.glob("episode_*.parquet"))
+            sampled_chunks.append(
+                {
+                    "chunk_dir": str(chunk_dir),
+                    "episode_file_count": len(episode_files),
+                    "sample_episode_files": [p.name for p in episode_files[: max(1, max_episode_files)]],
+                }
+            )
+        task_report["sampled_chunks"] = sampled_chunks
+
+        videos_dir = task_dir / "videos"
+        if videos_dir.exists():
+            video_files = sorted(videos_dir.glob("*.mp4"))
+            task_report["video_file_count"] = len(video_files)
+            task_report["sample_video_files"] = [p.name for p in video_files[: max(1, max_episode_files)]]
+
+        if LeRobotDatasetMetadata is not None:
+            try:
+                meta = LeRobotDatasetMetadata(
+                    task_dir.name,
+                    str(task_dir),
+                    CODEBASE_VERSION,
+                    force_cache_sync=False,
+                )
+                feature_keys = sorted(list(meta.features.keys()))
+                task_report["lerobot_metadata"] = {
+                    "fps": float(meta.fps),
+                    "total_episodes": int(meta.total_episodes),
+                    "camera_keys": list(meta.camera_keys),
+                    "feature_keys": feature_keys[: max(1, max_feature_keys)],
+                    "feature_keys_truncated": len(feature_keys) > max(1, max_feature_keys),
+                }
+            except Exception as exc:
+                task_report["lerobot_metadata_error"] = str(exc)
+        else:
+            task_report["lerobot_metadata_error"] = (
+                "lerobot import failed; metadata summary unavailable"
+            )
+
+        report["tasks"].append(task_report)
+
+    return report
 
 
 class RoboCOINDatasetReader(Dataset):
@@ -378,22 +564,82 @@ class RoboCOINDatasetReader(Dataset):
         raise ValueError("Stats not available; compute stats with lerobot utilities.")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    parser = argparse.ArgumentParser(description="RoboCOIN dataset reader.")
+    parser.add_argument("--mode", choices=["read", "stats", "inspect"], required=True)
+    parser.add_argument("--dataset_path", type=str, required=True,
+                        help="RoboCOIN root path or a single task path")
+    parser.add_argument("--env_name", type=str, nargs="+",
+                        help="Task folder name(s). For read/stats, exactly one task must be selected.")
+    parser.add_argument("--chunk_size", type=int, default=8)
+    parser.add_argument("--fixed_action_dim", type=int, default=32)
+    parser.add_argument("--prefer_eef_sim_pose", action="store_true")
+    parser.add_argument("--delta_action", action="store_true")
+    parser.add_argument("--skip_images", action="store_true")
+    parser.add_argument("--video_backend", type=str, default="pyav")
+    parser.add_argument("--max_items", type=int, default=3,
+                        help="Number of samples to print in read mode")
+    parser.add_argument("--output_path", type=str, default=None,
+                        help="Optional output JSON path for stats/inspect mode")
+    parser.add_argument("--inspect_max_tasks", type=int, default=3,
+                        help="Max tasks to inspect")
+    parser.add_argument("--inspect_max_jsonl_lines", type=int, default=2,
+                        help="Max lines sampled per jsonl in inspect mode")
+    parser.add_argument("--inspect_max_chunks", type=int, default=3,
+                        help="Max chunk folders to inspect")
+    parser.add_argument("--inspect_max_episode_files", type=int, default=5,
+                        help="Max episode parquet files to list per chunk")
+    parser.add_argument("--inspect_max_feature_keys", type=int, default=30,
+                        help="Max feature keys to list from lerobot metadata")
+    args = parser.parse_args()
+
+    if args.mode == "inspect":
+        report = inspect_robocoin_dataset_structure(
+            dataset_path=args.dataset_path,
+            env_names=args.env_name,
+            max_tasks=args.inspect_max_tasks,
+            max_jsonl_lines=args.inspect_max_jsonl_lines,
+            max_chunks=args.inspect_max_chunks,
+            max_episode_files=args.inspect_max_episode_files,
+            max_feature_keys=args.inspect_max_feature_keys,
+        )
+        payload = json.dumps(report, ensure_ascii=False, indent=2)
+        print(payload)
+        if args.output_path:
+            with open(args.output_path, "w", encoding="utf-8") as f:
+                f.write(payload)
+        return
+
+    task_path = _resolve_single_robocoin_task(args.dataset_path, args.env_name)
     ds = RoboCOINDatasetReader(
-        dataset_path="/vast/users/xiaodan/zhangkaidong/datasets/robocoin/RoboCOIN/AIRBOT_MMK2_close_the_computer",
-        chunk_size=8,
-        fixed_action_dim=32,
-        prefer_eef_sim_pose=False,
+        dataset_path=str(task_path),
+        chunk_size=args.chunk_size,
+        fixed_action_dim=args.fixed_action_dim,
+        prefer_eef_sim_pose=args.prefer_eef_sim_pose,
+        delta_action=args.delta_action,
+        skip_images=args.skip_images,
+        video_backend=args.video_backend,
     )
 
-    item = ds[0]
-    print(item.keys())
-    print(item["question"])
-    print(item["timestep"])
-    print(item["answer"])
-    print(item["style"])
-    print(item["action"].shape)
-    print(item["action_pad_mask"].shape)
-    print(item["proprio"].shape)
-    print(len(item["images"]))
-    print(item["metadata"])
+    if args.mode == "stats":
+        stats = ds.compute_stats()
+        payload = json.dumps(stats, ensure_ascii=False, indent=2)
+        print(payload)
+        if args.output_path:
+            with open(args.output_path, "w", encoding="utf-8") as f:
+                f.write(payload)
+        return
+
+    # read mode
+    print(f"Dataset length: {len(ds)}")
+    for i in range(min(args.max_items, len(ds))):
+        item = ds[i]
+        print(f"[{i}] question={item['question']}")
+        print(f"  action: {item['action'].shape}")
+        print(f"  proprio: {item['proprio'].shape if item['proprio'] is not None else None}")
+        print(f"  images: {len(item['images'])}")
+        print(f"  metadata: {item['metadata']}")
+
+
+if __name__ == "__main__":
+    main()
