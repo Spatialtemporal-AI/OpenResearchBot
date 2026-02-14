@@ -18,8 +18,9 @@ from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.jobs import BackgroundJobStartTool, BackgroundJobStatusTool
+from nanobot.agent.tools.cursor_cli import CursorCliAskTool
+from nanobot.agent.subagent import SubagentManager
 from nanobot.session.manager import SessionManager
 
 
@@ -93,6 +94,9 @@ class AgentLoop:
                 restrict_to_workspace=self.restrict_to_workspace,
             )
         )
+        
+        # Cursor CLI (Agent) integration tool
+        self.tools.register(CursorCliAskTool())
         
         # Web tools
         self.tools.register(WebSearchTool(api_key=self.brave_api_key))

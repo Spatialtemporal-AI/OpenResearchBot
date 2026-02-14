@@ -131,7 +131,10 @@ class BackgroundJobStartTool(Tool):
     def description(self) -> str:
         return (
             "Start a long-running shell command as a background job. "
-            "Use background_job_status to check progress or results later."
+            "The command itself should be a normal foreground command "
+            "(do NOT wrap it with nohup or '&'; this tool already runs "
+            "it in the background). Use background_job_status to check "
+            "progress or results later."
         )
 
     @property
@@ -162,6 +165,17 @@ class BackgroundJobStartTool(Tool):
 
         if not channel or not chat_id:
             return "Error: No target channel/chat specified for background job notifications"
+
+        # Guard against redundant background wrappers like nohup/&.
+        cmd_stripped = command.strip()
+        lower = cmd_stripped.lower()
+        if "nohup " in lower or cmd_stripped.endswith("&"):
+            return (
+                "Error: Please do not wrap background jobs with 'nohup' or '&'.\n"
+                "This tool already runs the command as a background job.\n"
+                "Provide the plain foreground command instead, e.g. "
+                "'python main.py' rather than 'nohup python main.py &'"
+            )
 
         cwd = working_dir or os.getcwd()
 
@@ -270,9 +284,10 @@ Result summary:
 {job.summary()}
 
 You are the main agent. Based on the background job result above, decide what to do next:
-1. If the job succeeded, briefly explain the result to the user.
+1. If the job succeeded, briefly summarize the outcome in 1–3 short sentences.
 2. If the job failed, use the error information to decide whether you should automatically adjust and retry the command, or instead explain the failure to the user and suggest next steps.
-3. Keep your reply concise and natural. Do not mention internal implementation details like \"tools\" or \"background jobs\"—just talk to the user in plain language."""
+3. Do NOT dump long raw logs back to the user. If detailed logs are needed, just mention that they can be inspected via the background job status, and only quote the minimal, most relevant lines.
+4. Keep your reply concise and natural. Do not mention internal implementation details like \"tools\" or \"background jobs\"—just talk to the user in plain language."""
 
         msg = InboundMessage(
             channel="system",

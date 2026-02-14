@@ -89,6 +89,54 @@ uv tool install nanobot-ai
 pip install nanobot-ai
 ```
 
+### (Optional) Install Cursor CLI integration
+
+If you want the agent to optionally use **Cursor CLI Agent** (in Ask/Plan modes)
+to help figure out how to run code in a given folder or which changes are needed
+before running, install Cursor CLI (`agent`) as well:
+
+```bash
+# macOS, Linux, and Windows (WSL)
+curl https://cursor.com/install -fsS | bash
+
+# then make sure ~/.local/bin is on your PATH, e.g. for bash:
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# verify installation
+agent --version
+```
+
+After installation, the nanobot agent can call Cursor CLI via the
+`cursor_cli_ask` tool. Use it when you are unsure which command to run
+for a specific project directory, or when code may need modifications
+before it can run. The tool runs `agent` in non-interactive Ask/Plan mode
+inside the target directory and returns its analysis back to the main agent.
+
+### (Optional) Install Cursor CLI integration
+
+If you want the agent to optionally use **Cursor CLI Agent** (in Ask/Plan modes)
+to help figure out how to run code in a given folder or which changes are needed
+before running, install Cursor CLI (`agent`) as well:
+
+```bash
+# macOS, Linux, and Windows (WSL)
+curl https://cursor.com/install -fsS | bash
+
+# then make sure ~/.local/bin is on your PATH, e.g. for bash:
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# verify installation
+agent --version
+```
+
+After installation, the nanobot agent can call Cursor CLI via the
+`cursor_cli_ask` tool. Use it when you are unsure which command to run
+for a specific project directory, or when code may need modifications
+before it can run. The tool runs `agent` in non-interactive Ask/Plan mode
+inside the target directory and returns its analysis back to the main agent.
+
 ## 🚀 Quick Start
 
 > [!TIP]
