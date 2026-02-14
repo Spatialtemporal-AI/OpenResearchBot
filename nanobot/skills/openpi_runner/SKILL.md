@@ -10,25 +10,28 @@ metadata: {"nanobot":{"emoji":"🐈","requires":{"bins":["git","uv","nvidia-smi"
 
 - **包管理器**: **强制使用 `uv`**。
 - **Git 克隆**: 必须带 `--recurse-submodules`。
-- **Stateless 执行**: 严禁依赖分步 `cd`，必须使用联合命令：`shell("cd /path/to/repo && tool_command")`。
-- **环境路径**: 始终通过 `./.venv/bin/python` 调用，严禁使用系统 Python。
+- **Stateless 执行**: 始终通过 `./.venv/bin/python` 调用。
+- **路径准则**: 优先在当前工作目录的 `./openpi` 文件夹内操作。
 
 ## ⚡ 自动化安装流程 (Automatic Recipe)
 
-**当用户提供 GitHub 链接或要求"跑通项目"时，Agent 必须静默执行：**
+**当用户要求"安装"或"运行 OpenPI"时，Agent 必须静默执行：**
 
 ### 1. 原子化代码获取与环境同步
 
 ```bash
-# 1. 克隆 (若目录存在且非空则跳过 clone)
+# 1. 冲突处理：若目录已存在且非空，自动清理以确保全新安装
+[ -d "openpi" ] && rm -rf openpi
+
+# 2. 递归克隆
 git clone --recurse-submodules https://github.com/Physical-Intelligence/openpi.git
 
-# 2. 静默解决资源坑 (分词器镜像劫持)
+# 3. 静默解决资源坑 (分词器镜像劫持)
 mkdir -p ~/.cache/openpi/big_vision && \
 curl -L -o ~/.cache/openpi/big_vision/paligemma_tokenizer.model \
     "https://huggingface.co/alpindale/gemma-2b/resolve/main/tokenizer.model?download=true"
 
-# 3. 联合构建环境 (绝对路径执行)
+# 4. 联合构建环境
 cd openpi && GIT_LFS_SKIP_SMUDGE=1 uv sync && ./.venv/bin/pip install -e .
 ```
 
@@ -42,9 +45,9 @@ cd openpi && [ -f scripts/apply_patches.sh ] && sh scripts/apply_patches.sh
 
 ### 3. 自动生成并运行验证 (Zero-Interaction)
 
-**严禁询问用户。** 若目录下无测试脚本，立即 `write_file` 创建 `smoke_test.py` 并运行：
+**准则**: 严禁询问用户。若 `./openpi/scripts/smoke_test.py` 不存在，立即通过 `write_file` 创建并执行。
 
-**完整测试脚本代码模板**：
+**完整测试脚本代码模板 (需注入 `write_file`)**：
 
 ```python
 #!/usr/bin/env python3
@@ -54,98 +57,56 @@ import sys
 import numpy as np
 from pathlib import Path
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# 确保导入路径正确
+repo_root = Path(__file__).parent.parent
+sys.path.insert(0, str(repo_root / "src"))
 
 from openpi.training import config as _config
 from openpi.policies import policy_config
 from openpi.shared import download
 
 def main():
-    """Main verification function."""
-    print("=" * 60)
-    print("OpenPI Baseline Verification")
-    print("=" * 60)
-    print()
-    
-    # 配置 DROID 模型
-    print("1. Loading config...")
+    print("=" * 30 + " OpenPI Verification " + "=" * 30)
     config = _config.get_config('pi05_droid')
-    print(f"   ✅ Config loaded: pi05_droid")
-    
-    # 下载权重
-    print("\n2. Downloading checkpoint...")
     checkpoint_dir = download.maybe_download('gs://openpi-assets/checkpoints/pi05_droid')
-    print(f"   ✅ Checkpoint ready: {checkpoint_dir}")
-    
-    # 创建策略
-    print("\n3. Creating policy...")
     policy = policy_config.create_trained_policy(config, checkpoint_dir)
-    print("   ✅ Policy created")
     
-    # 补全 DROID 必须的 8 维输入
-    print("\n4. Creating test observation...")
+    # 构造 DROID 必须的 8 维输入
     example = {
         'observation/exterior_image_1_left': np.zeros((224, 224, 3), dtype=np.uint8),
         'observation/wrist_image_left': np.zeros((224, 224, 3), dtype=np.uint8),
-        'observation/gripper_position': np.array([1.0], dtype=np.float32),  # 1D gripper
-        'observation/joint_position': np.zeros(7, dtype=np.float32),  # 7D joints
+        'observation/gripper_position': np.array([1.0], dtype=np.float32),
+        'observation/joint_position': np.zeros(7, dtype=np.float32),
         'prompt': 'pick up the fork'
     }
-    print("   ✅ Test observation created")
     
-    # 运行推理
-    print("\n5. Running inference...")
     actions = policy.infer(example)['actions']
+    actions_np = actions.cpu().numpy() if hasattr(actions, 'cpu') else np.array(actions)
     
-    # 转换为 numpy 数组
-    if hasattr(actions, 'numpy'):
-        actions_np = actions.numpy()
-    elif hasattr(actions, 'cpu'):
-        actions_np = actions.cpu().numpy()
-    else:
-        actions_np = np.array(actions)
-    
-    # 强制输出标准化结果（必须包含具体数字）
-    first_action_sample = actions_np[0][:3].tolist()
-    
-    print("\n" + "=" * 60)
-    print("✅ SUCCESS")
+    print("\n✅ SUCCESS")
+    print(f"Action Sample (first 3 dims): {actions_np[0][:3].tolist()}")
     print("=" * 60)
-    print(f"Action Sample (first 3 dims): {first_action_sample}")
-    print(f"Full first action: {actions_np[0].tolist()}")
-    print(f"Action shape: {actions_np.shape}")
-    print(f"Action range: [{actions_np.min():.4f}, {actions_np.max():.4f}]")
-    print("=" * 60)
-    
     return 0
 
 if __name__ == "__main__":
     sys.exit(main())
 ```
 
-**Agent 执行流程**：
-1. 检查 `smoke_test.py` 是否存在
-2. 如果不存在，使用 `write_file` 创建（使用上方完整代码模板）
-3. 使用绝对路径执行：`cd /path/to/openpi && /path/to/openpi/.venv/bin/python /path/to/openpi/smoke_test.py`
-
-**⚠️ 禁止的操作**：
-- ❌ **禁止因为找不到脚本而停止或询问用户**
-- ❌ **禁止等待用户输入或确认**
-- ✅ **必须自动创建并执行**
+**执行流程**：
+使用当前目录下的虚拟环境执行：`cd openpi && ./.venv/bin/python scripts/smoke_test.py`
 
 ## 📋 标准化汇报模板
 
-验证成功后，按此格式汇报（跳过过程日志）：
+验证成功后，按此格式汇报（跳过详细过程日志）：
 
 ```
 🐈 **OpenPI 自动安装成功**
 
-* **环境**: `uv` 依赖同步完成。
-* **补丁**: `transformers` 补丁与分词器镜像已修复。
+* **环境**: `uv` 依赖同步完成 & `transformers` 补丁已应用。
+* **资源修复**: 分词器镜像已补全 (4.1MB)。
 * **验证状态**: **SUCCESS**。
 
-**Baseline 跑通证据**: `[x.xxx, y.yyy, z.zzz]` (Action Sample)
+**Baseline 证据**: `[x.xxx, y.yyy, z.zzz]` (Action Sample)
 ```
 
 ## 🛠️ 故障回退
