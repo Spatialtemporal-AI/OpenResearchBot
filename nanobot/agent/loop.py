@@ -18,6 +18,8 @@ from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.cron import CronTool
+from nanobot.agent.tools.task_tracker import TaskTrackerTool
+from nanobot.agent.tools.training_tracker import TrainingTrackerTool
 from nanobot.agent.subagent import SubagentManager
 from nanobot.session.manager import SessionManager
 
@@ -106,6 +108,10 @@ class AgentLoop:
         # Cron tool (for scheduling)
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+        
+        # Research tools (task & training tracking)
+        self.tools.register(TaskTrackerTool(workspace=self.workspace))
+        self.tools.register(TrainingTrackerTool(workspace=self.workspace))
     
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""
