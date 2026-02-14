@@ -34,7 +34,8 @@ OpenResearchBot 是在 [nanobot](https://github.com/HKUDS/nanobot) 超轻量 AI 
 | 📋 任务追踪器 | `nanobot/agent/tools/task_tracker.py` | 科研任务管理（todo/doing/done/blocked） |
 | 📊 纯文本可视化 | `nanobot/agent/tools/text_viz.py` | 终端/聊天中渲染柱状图、折线图、Sparkline |
 | 🌐 HTML 仪表盘 | `nanobot/agent/tools/html_dashboard.py` | 基于 Chart.js 的交互式可视化仪表盘 |
-| 🖥️ CLI 工具 | `nanobot/cli_tracker.py` | 独立命令行入口，无需启动 Agent 即可查看数据 |
+| 🖥️ CLI 工具 | `nanobot/cli_tracker.py` | 独立命令行入口，含实时仪表盘服务器 |
+| 🔴 Python API | `nanobot/tracker_api.py` | **训练脚本直接导入，实时写入数据** |
 
 ### 修改的原有文件
 
@@ -204,14 +205,18 @@ loss  ▇▆▅▄▃▂▂▁  0.19
 
 ## 🖥️ 功能五：独立 CLI 工具（CLI Tracker）
 
-**文件**：`nanobot/cli_tracker.py`（170 行）
+**文件**：`nanobot/cli_tracker.py`
 
 无需启动 Agent 即可在命令行中查看和操作追踪数据。
 
 ### 使用方法
 
 ```bash
-# 📊 打开完整 HTML 仪表盘（自动打开浏览器）
+# 🔴 启动实时仪表盘（推荐 — 数据自动刷新）
+python -m nanobot.cli_tracker live
+python -m nanobot.cli_tracker live --port 9000
+
+# 📊 打开静态 HTML 仪表盘（一次性快照）
 python -m nanobot.cli_tracker dashboard
 
 # 📋 任务相关
@@ -226,6 +231,85 @@ python -m nanobot.cli_tracker train summary          # 查看训练总结
 python -m nanobot.cli_tracker train dashboard        # 打开训练 HTML 仪表盘
 python -m nanobot.cli_tracker train visualize --run-id run-abc123       # 查看指定训练
 python -m nanobot.cli_tracker train visualize --run-ids run-abc run-def # 对比多个训练
+```
+
+---
+
+## 🔴 功能六：实时更新（Live Dashboard + Python API）
+
+### 实时仪表盘服务器
+
+启动后浏览器自动打开，每 3 秒自动从 JSON 文件拉取最新数据并刷新图表，**训练过程中保持打开即可实时监控**。
+
+```bash
+python -m nanobot.cli_tracker live
+```
+
+### Python API — 训练脚本直接导入
+
+**文件**：`nanobot/tracker_api.py`
+
+在训练脚本中直接 `import` 使用，**无需启动 Agent**，数据自动写入 JSON 文件，实时仪表盘立即可见。
+
+```python
+from nanobot.tracker_api import ResearchTracker
+
+tracker = ResearchTracker()
+
+# ── 创建训练运行 ──
+run_id = tracker.create_run(
+    name="OpenVLA-7B finetune",
+    model="OpenVLA-7B",
+    dataset="bridge_v2",
+    hyperparams={"lr": 2e-5, "batch_size": 16, "epochs": 100},
+    vla_config={"action_space": "7-DoF delta EEF", "embodiment": "WidowX"},
+)
+
+# ── 在训练循环中记录指标 ──
+for epoch in range(100):
+    loss = train_one_epoch()
+    val_loss = evaluate()
+    tracker.log(run_id, epoch=epoch, loss=loss, val_loss=val_loss)
+
+    # 保存 checkpoint
+    if epoch % 10 == 0:
+        tracker.add_checkpoint(run_id, f"ckpt_epoch{epoch}.pt")
+
+# ── 训练完成 ──
+tracker.finish_run(run_id)
+```
+
+### 回调模式（适合 step 级别的日志）
+
+```python
+# 每 100 步记录一次
+cb = tracker.callback(run_id, log_every=100)
+for step in range(50000):
+    loss = train_step()
+    cb(step=step, loss=loss)   # 只有 step=100, 200, 300... 时才写入
+```
+
+### 任务管理 API
+
+```python
+# 创建任务
+task_id = tracker.create_task("复现 OpenVLA 实验", priority="high", tags=["VLA"])
+
+# 更新状态
+tracker.update_task(task_id, status="doing", note="开始训练")
+tracker.update_task(task_id, status="done", note="success rate 78%")
+```
+
+### 典型工作流
+
+```
+终端 1：启动实时仪表盘
+  $ python -m nanobot.cli_tracker live
+
+终端 2：运行训练脚本（脚本中使用 tracker API）
+  $ python train.py
+
+→ 仪表盘自动每 3 秒刷新，实时显示训练进度！
 ```
 
 ---
@@ -248,12 +332,13 @@ python -m nanobot.cli_tracker train visualize --run-ids run-abc run-def # 对比
 
 ```
 nanobot/
+├── tracker_api.py            # 🔴 Python API（训练脚本直接导入，实时更新）
 ├── agent/tools/
 │   ├── training_tracker.py   # 🧪 训练运行追踪器（685 行）
 │   ├── task_tracker.py       # 📋 任务追踪器（355 行）
 │   ├── text_viz.py           # 📊 纯文本可视化（672 行）
-│   └── html_dashboard.py     # 🌐 HTML 仪表盘生成器（794 行）
-├── cli_tracker.py            # 🖥️ 独立 CLI 工具（170 行）
+│   └── html_dashboard.py     # 🌐 HTML 仪表盘生成器（含实时模式）
+├── cli_tracker.py            # 🖥️ CLI 工具（含 live 实时服务器）
 workspace/
 ├── AGENTS.md                 # 更新：研究助手指令
 ├── SOUL.md                   # 更新：VLA 研究人格
@@ -297,9 +382,21 @@ nanobot agent
 ### 4. 通过 CLI 直接查看
 
 ```bash
-python -m nanobot.cli_tracker dashboard    # 打开 HTML 仪表盘
+python -m nanobot.cli_tracker live         # 🔴 启动实时仪表盘（推荐）
+python -m nanobot.cli_tracker dashboard    # 打开静态 HTML 仪表盘
 python -m nanobot.cli_tracker task list    # 查看任务
 python -m nanobot.cli_tracker train summary # 训练总结
+```
+
+### 5. 在训练脚本中使用 Python API
+
+```python
+from nanobot.tracker_api import ResearchTracker
+tracker = ResearchTracker()
+run_id = tracker.create_run("my experiment", model="OpenVLA-7B")
+for epoch in range(100):
+    tracker.log(run_id, epoch=epoch, loss=train())
+tracker.finish_run(run_id)
 ```
 
 ---
@@ -308,6 +405,10 @@ python -m nanobot.cli_tracker train summary # 训练总结
 
 - **数据存储**：JSON 文件存储在 `workspace/research/` 目录下，轻量且可版本控制
 - **工具注册**：通过 nanobot 的 Tool 基类实现，自动集成到 Agent 的工具链中
+- **实时更新**：
+  - Python API 直接写入 JSON 文件
+  - Live 服务器每 3 秒通过 AJAX 轮询 `/api/data` 端点获取最新数据
+  - Chart.js 图表自动销毁并重建，实现无刷新更新
 - **可视化**：
   - 纯文本模式使用 Unicode 字符渲染，零依赖
   - HTML 模式使用 Chart.js CDN，生成自包含 HTML 文件

@@ -70,12 +70,28 @@ def generate_task_dashboard(workspace: Path) -> Path:
 
 # ─── HTML Builder ────────────────────────────────────────────────
 
-def _build_html(tasks: list[dict], runs: list[dict]) -> str:
+def _build_html(tasks: list[dict], runs: list[dict], *, live_mode: bool = False) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Prepare JSON data for embedding
     tasks_json = json.dumps(tasks, ensure_ascii=False)
     runs_json = json.dumps(runs, ensure_ascii=False)
+
+    live_flag_js = "window.__LIVE__ = true;" if live_mode else ""
+    live_indicator = (
+        ' <span style="display:inline-block;background:#ef4444;color:#fff;'
+        "font-size:0.7rem;padding:2px 10px;border-radius:12px;margin-left:12px;"
+        'animation:pulse 2s infinite;">● LIVE</span>'
+    ) if live_mode else ""
+    live_ts = (
+        '<p class="subtitle" id="live-ts" style="color:var(--accent2);">'
+        "Connected — auto-refreshing every 3s</p>"
+    ) if live_mode else ""
+    subtitle = "Live Dashboard" if live_mode else f"Generated at {now}"
+    live_css = (
+        "\n@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }"
+    ) if live_mode else ""
+    live_js = f"\n{_LIVE_JS}" if live_mode else ""
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -85,14 +101,15 @@ def _build_html(tasks: list[dict], runs: list[dict]) -> str:
 <title>🔬 Research Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
-{_CSS}
+{_CSS}{live_css}
 </style>
 </head>
 <body>
 
 <header>
-  <h1>🔬 Research Dashboard</h1>
-  <p class="subtitle">Generated at {now}</p>
+  <h1>🔬 Research Dashboard{live_indicator}</h1>
+  <p class="subtitle">{subtitle}</p>
+  {live_ts}
 </header>
 
 <main id="app">
@@ -101,14 +118,36 @@ def _build_html(tasks: list[dict], runs: list[dict]) -> str:
 </main>
 
 <script>
+{live_flag_js}
 const TASKS = {tasks_json};
 const RUNS = {runs_json};
 
-{_JS}
+{_JS}{live_js}
 </script>
 
 </body>
 </html>"""
+
+
+def generate_live_html(workspace: Path) -> str:
+    """Generate dashboard HTML string with live-refresh enabled."""
+    tasks_data = _load_json(workspace / "research" / "tasks.json")
+    runs_data = _load_json(workspace / "research" / "training_runs.json")
+    return _build_html(
+        tasks_data.get("tasks", []),
+        runs_data.get("runs", []),
+        live_mode=True,
+    )
+
+
+def load_tracker_data(workspace: Path) -> dict:
+    """Load current tasks and runs data as a dict."""
+    tasks_data = _load_json(workspace / "research" / "tasks.json")
+    runs_data = _load_json(workspace / "research" / "training_runs.json")
+    return {
+        "tasks": tasks_data.get("tasks", []),
+        "runs": runs_data.get("runs", []),
+    }
 
 
 # ─── CSS ─────────────────────────────────────────────────────────
@@ -789,5 +828,44 @@ renderTraining(RUNS);
 
 if (!TASKS.length && !RUNS.length) {
   document.getElementById('app').innerHTML = '<div class="empty-state">📭 No data yet. Use the tracker tools to create tasks and training runs.</div>';
+}
+"""
+
+
+# ─── Live-mode JavaScript (AJAX polling) ─────────────────────────
+
+_LIVE_JS = """\
+// ─── Live Auto-Refresh ───
+if (window.__LIVE__) {
+  const _tsEl = document.getElementById('live-ts');
+
+  async function _refreshData() {
+    try {
+      const resp = await fetch('/api/data');
+      const data = await resp.json();
+
+      // Destroy all existing Chart.js instances before re-rendering
+      document.querySelectorAll('canvas').forEach(canvas => {
+        const chart = Chart.getChart(canvas);
+        if (chart) chart.destroy();
+      });
+
+      // Re-render sections with fresh data
+      renderTasks(data.tasks || []);
+      renderTraining(data.runs || []);
+
+      if (!(data.tasks || []).length && !(data.runs || []).length) {
+        document.getElementById('app').innerHTML =
+          '<div class="empty-state">📭 No data yet. Use tracker API or Agent to add tasks and training runs.</div>';
+      }
+
+      if (_tsEl) _tsEl.textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      if (_tsEl) _tsEl.textContent = '⚠️ Connection lost — retrying...';
+    }
+  }
+
+  // Poll every 3 seconds
+  setInterval(_refreshData, 3000);
 }
 """
