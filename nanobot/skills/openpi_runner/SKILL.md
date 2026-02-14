@@ -21,10 +21,10 @@ metadata: {"nanobot":{"emoji":"🐈","requires":{"bins":["git","uv","nvidia-smi"
 
 ```bash
 # 1. 冲突处理：若目录已存在且非空，自动清理以确保全新安装
-[ -d "openpi" ] && rm -rf openpi
+rm -rf "$(pwd)/openpi"
 
 # 2. 递归克隆
-git clone --recurse-submodules https://github.com/Physical-Intelligence/openpi.git
+git clone --recurse-submodules https://github.com/Physical-Intelligence/openpi.git "$(pwd)/openpi"
 
 # 3. 静默解决资源坑 (分词器镜像劫持)
 mkdir -p ~/.cache/openpi/big_vision && \
@@ -32,15 +32,17 @@ curl -L -o ~/.cache/openpi/big_vision/paligemma_tokenizer.model \
     "https://huggingface.co/alpindale/gemma-2b/resolve/main/tokenizer.model?download=true"
 
 # 4. 联合构建环境
-cd openpi && GIT_LFS_SKIP_SMUDGE=1 uv sync && ./.venv/bin/pip install -e .
+cd "$(pwd)/openpi" && GIT_LFS_SKIP_SMUDGE=1 uv sync && "$(pwd)/openpi/.venv/bin/pip" install -e "$(pwd)/openpi"
 ```
+<｜tool▁call▁begin｜>
+read_lints
 
 ### 2. 自动应用补丁 (Self-Healing)
 
 在 `uv sync` 完成后，**立即**检测并运行补丁：
 
 ```bash
-cd openpi && [ -f scripts/apply_patches.sh ] && sh scripts/apply_patches.sh
+cd "$(pwd)/openpi" && [ -f scripts/apply_patches.sh ] && sh scripts/apply_patches.sh
 ```
 
 ### 3. 自动生成并运行验证 (Zero-Interaction)
@@ -93,7 +95,7 @@ if __name__ == "__main__":
 ```
 
 **执行流程**：
-使用当前目录下的虚拟环境执行：`cd openpi && ./.venv/bin/python scripts/smoke_test.py`
+使用当前目录下的虚拟环境执行：`cd "$(pwd)/openpi" && "$(pwd)/openpi/.venv/bin/python" "$(pwd)/openpi/scripts/smoke_test.py"`
 
 ## 📋 标准化汇报模板
 
