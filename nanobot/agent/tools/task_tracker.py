@@ -27,6 +27,9 @@ class TaskTrackerTool(Tool):
     (todo / doing / done / blocked), priority, tags, and notes.
     """
 
+    # Set by feishu_bot.py at startup; when set, _dashboard returns live URL
+    live_dashboard_url: str | None = None
+
     def __init__(self, workspace: Path):
         self._workspace = workspace
         self._store_path = workspace / "research" / "tasks.json"
@@ -54,7 +57,7 @@ class TaskTrackerTool(Tool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create", "update", "list", "detail", "delete", "summary", "visualize", "dashboard"],
+                    "enum": ["create", "update", "list", "detail", "delete", "summary"],
                     "description": "Action to perform",
                 },
                 "task_id": {
@@ -349,6 +352,15 @@ class TaskTrackerTool(Tool):
         return task_dashboard(tasks)
 
     def _dashboard(self, **_: Any) -> str:
-        """Generate an interactive HTML dashboard and return the file path."""
+        """Return the live dashboard URL if available, otherwise generate a static HTML file."""
+        url = self.__class__.live_dashboard_url
+        if url:
+            return (
+                f"📊 实时仪表盘正在运行，请将以下链接发送给用户（保留链接格式）：\n"
+                f"[点击打开实时仪表盘]({url})\n"
+                f"数据每 3 秒自动刷新，包含所有训练和任务数据的交互式图表。\n"
+                f"请勿返回本地文件路径，用户无法直接打开本地文件。"
+            )
+        # Fallback: generate static HTML (CLI usage)
         path = generate_task_dashboard(self._workspace)
         return f"📊 HTML dashboard generated: {path}\nOpen in browser to view interactive charts."

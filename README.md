@@ -7,6 +7,7 @@
     <img src="https://img.shields.io/badge/python-≥3.11-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <img src="https://img.shields.io/badge/based%20on-nanobot-orange" alt="Based on nanobot">
+    <img src="https://img.shields.io/badge/飞书-Feishu%20Bot-4e6ef2" alt="Feishu Bot">
   </p>
 </div>
 
@@ -16,17 +17,14 @@
 
 OpenResearchBot 是在 [nanobot](https://github.com/HKUDS/nanobot) 超轻量 AI Agent 框架基础上扩展的**科研实验追踪助手**，专为 VLA（Vision-Language-Action）模型研究场景设计，同时也适用于一般的机器学习/深度学习实验管理。
 
-### 🎯 核心目标
-
-- 帮助研究人员通过 AI Agent **自然语言对话**来管理科研任务和实验进度
-- 提供结构化的训练运行记录，特别支持 VLA 模型特有的字段（动作空间、观察空间、具身化平台等）
-- 可视化实验数据，支持终端纯文本图表和交互式 HTML 仪表盘两种模式
+- 通过 AI Agent **自然语言对话**管理科研任务和实验进度
+- 结构化训练运行记录，特别支持 VLA 模型特有字段（动作空间、观察空间、具身化平台等）
+- 可视化实验数据：终端纯文本图表 + 交互式 HTML 仪表盘
+- **飞书机器人**：随时随地通过飞书与 Agent 对话，手机端也能管理实验
 
 ---
 
-## ✨ 新增功能概览
-
-本项目在原版 nanobot 基础上新增了以下功能模块：
+## ✨ 功能概览
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
@@ -35,384 +33,119 @@ OpenResearchBot 是在 [nanobot](https://github.com/HKUDS/nanobot) 超轻量 AI 
 | 📊 纯文本可视化 | `nanobot/agent/tools/text_viz.py` | 终端/聊天中渲染柱状图、折线图、Sparkline |
 | 🌐 HTML 仪表盘 | `nanobot/agent/tools/html_dashboard.py` | 基于 Chart.js 的交互式可视化仪表盘 |
 | 🖥️ CLI 工具 | `nanobot/cli_tracker.py` | 独立命令行入口，含实时仪表盘服务器 |
-| 🔴 Python API | `nanobot/tracker_api.py` | **训练脚本直接导入，实时写入数据** |
-
-### 修改的原有文件
-
-| 文件 | 修改内容 |
-|------|---------|
-| `nanobot/__init__.py` | 增加 Windows 终端 emoji 兼容处理 |
-| `nanobot/agent/loop.py` | 注册 TaskTrackerTool 和 TrainingTrackerTool |
-| `workspace/AGENTS.md` | 更新 Agent 身份为 VLA 研究助手，添加工具使用指南 |
-| `workspace/SOUL.md` | 更新 Agent 人格为科研导向 |
+| 🔴 Python API | `nanobot/tracker_api.py` | 训练脚本直接导入，实时写入数据 |
+| 💬 飞书机器人 | `nanobot/channels/feishu.py` | 飞书/Lark 频道，WebSocket 长连接，卡片消息 |
+| 🚀 飞书启动器 | `nanobot/feishu_bot.py` | 独立飞书 Bot 入口，含实时仪表盘服务 |
 
 ---
 
-## 🧪 功能一：训练运行追踪器（Training Tracker）
+## 🧪 训练运行追踪器
 
-**文件**：`nanobot/agent/tools/training_tracker.py`（685 行）
+专为 VLA 模型训练设计，同时支持任意 ML/DL 训练。支持操作：`create` / `update` / `log_metrics` / `list` / `detail` / `compare` / `summary` / `visualize` / `dashboard`。
 
-专门为 VLA 模型训练设计的追踪工具，同时也支持任意 ML/DL 训练。
-
-### 支持的操作
-
-| 操作 | 说明 |
-|------|------|
-| `create` | 创建新的训练运行，记录模型、数据集、超参数、VLA 配置 |
-| `update` | 更新训练状态（queued/running/completed/failed/stopped） |
-| `log_metrics` | 记录训练指标（loss, success_rate, 或自定义指标） |
-| `list` | 按状态/模型筛选查看训练列表 |
-| `detail` | 查看单次训练的完整信息（含 VLA 配置和指标历史） |
-| `compare` | 多次训练横向对比 |
-| `delete` | 删除训练记录 |
-| `summary` | 总览统计，含最佳表现运行 |
-| `visualize` | 纯文本可视化训练曲线 |
-| `dashboard` | 生成交互式 HTML 仪表盘 |
-
-### VLA 专属字段
-
-通过 `vla_config` 参数记录 VLA 模型特有信息：
-
-```json
-{
-  "action_space": "7-DoF delta EEF",
-  "observation_space": "RGB 256x256 + proprioception",
-  "embodiment": "Franka Panda",
-  "environment": "real-world tabletop",
-  "task_suite": "pick-and-place, drawer open/close",
-  "action_tokenizer": "256 bins per dim",
-  "backbone": "Llama-2-7B"
-}
-```
-
-### 使用示例（Agent 对话）
+通过 `vla_config` 记录 VLA 特有信息（action_space、observation_space、embodiment、environment 等）。
 
 ```
 用户：帮我记录一下 OpenVLA-7B 在 Bridge 数据集上的训练，学习率 2e-5，batch size 16
-
-Agent（自动调用 training_tracker）：
-  ✅ 已创建训练运行 [run-a1b2c3]
-  模型：OpenVLA-7B | 数据集：bridge_v2 | 状态：running
+Agent：✅ 已创建训练运行 [run-a1b2c3] 模型：OpenVLA-7B | 数据集：bridge_v2
 
 用户：loss 降到 0.35 了，success rate 72%
-
-Agent（自动调用 log_metrics）：
-  📊 已记录指标 → run-a1b2c3
-  loss: 0.35 | success_rate: 72.0%
+Agent：📊 已记录指标 → run-a1b2c3  loss: 0.35 | success_rate: 72.0%
 ```
 
----
+## 📋 任务追踪器
 
-## 📋 功能二：任务追踪器（Task Tracker）
+管理科研任务（`todo → doing → done / blocked`），支持优先级、标签、时间戳备注。
 
-**文件**：`nanobot/agent/tools/task_tracker.py`（355 行）
+## 📊 可视化
 
-管理科研任务和未完成工作的结构化工具。
+- **纯文本模式**：终端直接渲染柱状图、折线图、Sparkline，零依赖
+- **HTML 仪表盘**：Chart.js 交互式图表，深色主题，响应式设计，浏览器直接打开
+- **实时仪表盘**：每 3 秒自动刷新，训练过程中保持打开即可实时监控
 
-### 支持的操作
+## 💬 飞书机器人
 
-| 操作 | 说明 |
+通过飞书与 Agent 直接对话。基于 **WebSocket 长连接**，**无需公网 IP**，开箱即用。
+
+| 特性 | 说明 |
 |------|------|
-| `create` | 创建任务，设置标题、描述、优先级、标签 |
-| `update` | 更新状态（todo/doing/done/blocked），添加时间戳备注 |
-| `list` | 按状态/标签筛选任务列表 |
-| `detail` | 查看任务完整详情 |
-| `delete` | 删除任务 |
-| `summary` | 任务总览统计 |
-| `visualize` | 纯文本可视化任务面板 |
-| `dashboard` | 生成交互式 HTML 仪表盘 |
+| 🔌 WebSocket 长连接 | 无需公网 IP、无需 Webhook |
+| 🃏 交互式卡片消息 | Markdown + 原生表格渲染 |
+| ⏳ "思考中" 指示器 | 处理时显示，完成后原地更新为回复 |
+| ⚡ 快捷命令 | `/help` `/tasks` `/trains` `/dashboard` `/status` |
+| 📊 实时仪表盘 | 启动时自动开启 HTTP 仪表盘服务，LAN 内手机可访问 |
 
-### 任务状态流转
+## 🔴 Python API
 
-```
-todo → doing → done
-  ↓       ↓
-blocked  blocked
-```
-
-### 使用示例（Agent 对话）
-
-```
-用户：还没复现 OpenVLA 论文 Table 2 的实验，帮我记一下
-
-Agent（自动调用 task_tracker）：
-  ✅ 已创建任务 [t-x1y2z3]
-  标题：复现 OpenVLA 论文 Table 2 实验
-  优先级：high | 状态：todo | 标签：VLA, 复现
-
-用户：开始做了
-
-Agent（自动调用 task_tracker update）：
-  📋 任务已更新 → doing
-```
-
----
-
-## 📊 功能三：纯文本可视化（Text Visualization）
-
-**文件**：`nanobot/agent/tools/text_viz.py`（672 行）
-
-在终端或聊天界面中渲染各种数据图表，**无需任何外部依赖**。
-
-### 支持的图表类型
-
-| 图表 | 函数 | 说明 |
-|------|------|------|
-| 📊 柱状图 | `bar_chart()` | 水平柱状图，展示分类数据 |
-| 📈 折线图 | `line_chart()` | ASCII 折线图，支持多系列 |
-| ⚡ Sparkline | `sparkline()` | 紧凑单行趋势线 |
-| 🏅 排行榜 | `leaderboard()` | 训练运行排名 |
-
-### 渲染效果示例
-
-```
-📊 Task Status
-──────────────────────────────────────
-todo     ████████░░░░░  3
-doing    ████░░░░░░░░░  2
-done     █████████████  5
-blocked  ██░░░░░░░░░░░  1
-
-📈 Training Loss
-loss  ▇▆▅▄▃▂▂▁  0.19
-```
-
----
-
-## 🌐 功能四：HTML 交互式仪表盘（HTML Dashboard）
-
-**文件**：`nanobot/agent/tools/html_dashboard.py`（794 行）
-
-生成自包含的 HTML 仪表盘文件，基于 Chart.js CDN，无需搭建服务器，浏览器直接打开即可。
-
-### 特性
-
-- 📱 响应式设计，适配桌面和移动端
-- 🎨 深色主题，现代化 UI
-- 📊 交互式图表（Chart.js 4.x）
-- 🔄 任务状态分布饼图
-- 📈 训练指标折线图
-- 🏆 训练运行对比表格
-- 🌐 纯静态 HTML，可离线查看
-
-### 仪表盘页面
-
-- **完整仪表盘**：任务 + 训练一体化视图
-- **任务仪表盘**：仅展示任务状态和进度
-- **训练仪表盘**：训练指标可视化和运行对比
-
----
-
-## 🖥️ 功能五：独立 CLI 工具（CLI Tracker）
-
-**文件**：`nanobot/cli_tracker.py`
-
-无需启动 Agent 即可在命令行中查看和操作追踪数据。
-
-### 使用方法
-
-```bash
-# 🔴 启动实时仪表盘（推荐 — 数据自动刷新）
-python -m nanobot.cli_tracker live
-python -m nanobot.cli_tracker live --port 9000
-
-# 📊 打开静态 HTML 仪表盘（一次性快照）
-python -m nanobot.cli_tracker dashboard
-
-# 📋 任务相关
-python -m nanobot.cli_tracker task visualize        # 文本模式可视化
-python -m nanobot.cli_tracker task list              # 查看任务列表
-python -m nanobot.cli_tracker task summary           # 查看任务总结
-python -m nanobot.cli_tracker task dashboard         # 打开任务 HTML 仪表盘
-
-# 🧪 训练相关
-python -m nanobot.cli_tracker train visualize        # 文本模式可视化
-python -m nanobot.cli_tracker train summary          # 查看训练总结
-python -m nanobot.cli_tracker train dashboard        # 打开训练 HTML 仪表盘
-python -m nanobot.cli_tracker train visualize --run-id run-abc123       # 查看指定训练
-python -m nanobot.cli_tracker train visualize --run-ids run-abc run-def # 对比多个训练
-```
-
----
-
-## 🔴 功能六：实时更新（Live Dashboard + Python API）
-
-### 实时仪表盘服务器
-
-启动后浏览器自动打开，每 3 秒自动从 JSON 文件拉取最新数据并刷新图表，**训练过程中保持打开即可实时监控**。
-
-```bash
-python -m nanobot.cli_tracker live
-```
-
-### Python API — 训练脚本直接导入
-
-**文件**：`nanobot/tracker_api.py`
-
-在训练脚本中直接 `import` 使用，**无需启动 Agent**，数据自动写入 JSON 文件，实时仪表盘立即可见。
+训练脚本中直接 `import` 使用，无需启动 Agent，数据自动写入 JSON，实时仪表盘立即可见。
 
 ```python
 from nanobot.tracker_api import ResearchTracker
 
 tracker = ResearchTracker()
-
-# ── 创建训练运行 ──
-run_id = tracker.create_run(
-    name="OpenVLA-7B finetune",
-    model="OpenVLA-7B",
-    dataset="bridge_v2",
+run_id = tracker.create_run("OpenVLA-7B finetune", model="OpenVLA-7B", dataset="bridge_v2",
     hyperparams={"lr": 2e-5, "batch_size": 16, "epochs": 100},
-    vla_config={"action_space": "7-DoF delta EEF", "embodiment": "WidowX"},
-)
+    vla_config={"action_space": "7-DoF delta EEF", "embodiment": "WidowX"})
 
-# ── 在训练循环中记录指标 ──
 for epoch in range(100):
-    loss = train_one_epoch()
-    val_loss = evaluate()
-    tracker.log(run_id, epoch=epoch, loss=loss, val_loss=val_loss)
-
-    # 保存 checkpoint
-    if epoch % 10 == 0:
-        tracker.add_checkpoint(run_id, f"ckpt_epoch{epoch}.pt")
-
-# ── 训练完成 ──
+    tracker.log(run_id, epoch=epoch, loss=train_one_epoch(), val_loss=evaluate())
 tracker.finish_run(run_id)
 ```
 
-### 回调模式（适合 step 级别的日志）
-
-```python
-# 每 100 步记录一次
-cb = tracker.callback(run_id, log_every=100)
-for step in range(50000):
-    loss = train_step()
-    cb(step=step, loss=loss)   # 只有 step=100, 200, 300... 时才写入
-```
-
-### 任务管理 API
-
-```python
-# 创建任务
-task_id = tracker.create_task("复现 OpenVLA 实验", priority="high", tags=["VLA"])
-
-# 更新状态
-tracker.update_task(task_id, status="doing", note="开始训练")
-tracker.update_task(task_id, status="done", note="success rate 78%")
-```
-
-### 典型工作流
-
-```
-终端 1：启动实时仪表盘
-  $ python -m nanobot.cli_tracker live
-
-终端 2：运行训练脚本（脚本中使用 tracker API）
-  $ python train.py
-
-→ 仪表盘自动每 3 秒刷新，实时显示训练进度！
-```
-
 ---
 
-## 🔧 其他改进
-
-### Windows 兼容性
-
-修改了 `nanobot/__init__.py`，增加 Windows 终端 emoji 兼容处理，在不支持 emoji 的终端上自动降级为文本标识。
-
-### Agent 身份定制
-
-- 将 Agent 身份从通用助手更新为 VLA 研究助手
-- Agent 会主动建议追踪任务和训练运行
-- 熟悉 VLA 研究术语（动作空间、具身化、sim-to-real 等）
-
----
-
-## 📁 新增文件结构
+## 📁 文件结构
 
 ```
 nanobot/
-├── tracker_api.py            # 🔴 Python API（训练脚本直接导入，实时更新）
+├── tracker_api.py            # Python API（训练脚本直接导入）
+├── feishu_bot.py             # 飞书 Bot 独立入口
+├── cli_tracker.py            # CLI 工具（含 live 实时服务器）
 ├── agent/tools/
-│   ├── training_tracker.py   # 🧪 训练运行追踪器（685 行）
-│   ├── task_tracker.py       # 📋 任务追踪器（355 行）
-│   ├── text_viz.py           # 📊 纯文本可视化（672 行）
-│   └── html_dashboard.py     # 🌐 HTML 仪表盘生成器（含实时模式）
-├── cli_tracker.py            # 🖥️ CLI 工具（含 live 实时服务器）
+│   ├── training_tracker.py   # 训练运行追踪器
+│   ├── task_tracker.py       # 任务追踪器
+│   ├── text_viz.py           # 纯文本可视化
+│   └── html_dashboard.py     # HTML 仪表盘生成器
+├── channels/
+│   └── feishu.py             # 飞书频道（WebSocket + 卡片消息）
 workspace/
-├── AGENTS.md                 # 更新：研究助手指令
-├── SOUL.md                   # 更新：VLA 研究人格
-└── research/                 # 数据存储目录
-    ├── tasks.json            # 任务数据
-    ├── training_runs.json    # 训练运行数据
-    └── dashboard.html        # 生成的仪表盘
-tests/
-└── test_trackers.py          # 追踪器功能测试
+├── AGENTS.md                 # Agent 指令
+├── SOUL.md                   # Agent 人格
+└── research/                 # 数据存储
+    ├── tasks.json
+    ├── training_runs.json
+    └── dashboard.html
 ```
 
 ---
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 1. 安装
 
 ```bash
 pip install -e .
+pip install lark-oapi>=1.0.0   # 飞书机器人需要
 ```
 
-### 2. 配置 API Key
+### 2. 配置
 
-参考 [nanobot 文档](https://github.com/HKUDS/nanobot) 配置 LLM Provider。
+参考 [nanobot 文档](https://github.com/HKUDS/nanobot) 配置 LLM Provider（`~/.nanobot/config.json`）。
 
-### 3. 通过 Agent 对话使用
+### 3. 使用方式
 
 ```bash
+# 方式一：终端 Agent 对话
 nanobot agent
-```
 
-在对话中自然地提及实验和任务，Agent 会自动调用追踪工具：
+# 方式二：飞书机器人（推荐 📱 随时随地使用）
+python -m nanobot.feishu_bot
 
-```
-> 帮我创建一个训练任务：微调 OpenVLA-7B，数据集 bridge_v2，学习率 2e-5
-> 记录一下当前 loss 0.45，success rate 65%
-> 对比一下最近的两次训练
-> 还有哪些任务没完成？
-```
-
-### 4. 通过 CLI 直接查看
-
-```bash
-python -m nanobot.cli_tracker live         # 🔴 启动实时仪表盘（推荐）
-python -m nanobot.cli_tracker dashboard    # 打开静态 HTML 仪表盘
+# 方式三：CLI 工具
+python -m nanobot.cli_tracker live         # 实时仪表盘
 python -m nanobot.cli_tracker task list    # 查看任务
 python -m nanobot.cli_tracker train summary # 训练总结
 ```
-
-### 5. 在训练脚本中使用 Python API
-
-```python
-from nanobot.tracker_api import ResearchTracker
-tracker = ResearchTracker()
-run_id = tracker.create_run("my experiment", model="OpenVLA-7B")
-for epoch in range(100):
-    tracker.log(run_id, epoch=epoch, loss=train())
-tracker.finish_run(run_id)
-```
-
----
-
-## 🏗️ 技术实现
-
-- **数据存储**：JSON 文件存储在 `workspace/research/` 目录下，轻量且可版本控制
-- **工具注册**：通过 nanobot 的 Tool 基类实现，自动集成到 Agent 的工具链中
-- **实时更新**：
-  - Python API 直接写入 JSON 文件
-  - Live 服务器每 3 秒通过 AJAX 轮询 `/api/data` 端点获取最新数据
-  - Chart.js 图表自动销毁并重建，实现无刷新更新
-- **可视化**：
-  - 纯文本模式使用 Unicode 字符渲染，零依赖
-  - HTML 模式使用 Chart.js CDN，生成自包含 HTML 文件
-- **VLA 支持**：通过 `vla_config` 字段扩展，不影响通用训练追踪功能
 
 ---
 
@@ -424,3 +157,4 @@ tracker.finish_run(run_id)
 
 - [nanobot](https://github.com/HKUDS/nanobot) — 底层 AI Agent 框架
 - [Chart.js](https://www.chartjs.org/) — HTML 仪表盘图表库
+- [lark-oapi](https://github.com/larksuite/oapi-sdk-python) — 飞书/Lark 开放平台 Python SDK
