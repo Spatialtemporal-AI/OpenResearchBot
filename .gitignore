@@ -19,3 +19,19 @@ poetry.lock
 .pytest_cache/
 tests/
 openpi/
+botpy.log
+
+# Workspace output
+workspace/output/
+
+# Video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
+*.webm
+
+# macOS
+.DS_Store

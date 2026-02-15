@@ -1,0 +1,18 @@
+{
+  "name": "files/357jp8031b1u",
+  "display_name": null,
+  "mime_type": "video/mp4",
+  "size_bytes": 4132825,
+  "create_time": "2026-02-11T10:02:13.000336+00:00",
+  "expiration_time": "2026-02-13T10:02:11.722427+00:00",
+  "update_time": "2026-02-11T10:02:16.211087+00:00",
+  "sha256_hash": "NTM3YjcwMmNjOWE2ODE3OGI2M2VhMzNmMzU3ZGE0NTk2YWZhMzE4OWZmNGFlMDg5ODkxNjYxNDRlM2UxMDZmMA==",
+  "uri": "https://generativelanguage.googleapis.com/v1beta/files/357jp8031b1u",
+  "download_uri": null,
+  "state": "ACTIVE",
+  "source": "UPLOADED",
+  "video_metadata": {
+    "videoDuration": "9s"
+  },
+  "error": null
+}

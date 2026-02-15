@@ -1,0 +1,25 @@
+{
+  "created_at_beijing": "2026-02-11T18:02:48.211332+08:00",
+  "args": {
+    "input": "https://cdn.bigmodel.cn/agent-demos/lark/113123.mov",
+    "model": "gemini-3-flash-preview",
+    "size_threshold_mb": 180.0,
+    "force_compress": false,
+    "compression_crf": 20,
+    "compression_preset": "medium",
+    "dry_run": false,
+    "keep_cache": false
+  },
+  "result": {
+    "status": "ok",
+    "dry_run": false,
+    "session_dir": "/Users/jikangyi/Downloads/nanobot/nanobot/skills/research-video-analysis-report/output/20260211T180159+0800",
+    "report_path": "/Users/jikangyi/Downloads/nanobot/nanobot/skills/research-video-analysis-report/output/20260211T180159+0800/report.md",
+    "prepared_video_path": "/Users/jikangyi/Downloads/nanobot/nanobot/skills/research-video-analysis-report/output/20260211T180159+0800/cache/prepared.mp4",
+    "prepare_reasons": [
+      "container=.mov"
+    ],
+    "uploaded_file_name": "files/357jp8031b1u",
+    "model": "gemini-3-flash-preview"
+  }
+}
