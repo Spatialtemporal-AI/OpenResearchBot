@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "t-7f7195",
+      "title": "复现 OpenVLA 论文的 Table 2 实验",
+      "description": "复现 OpenVLA 论文中的 Table 2 实验，确保所有步骤和结果都与论文一致。",
+      "status": "doing",
+      "priority": "high",
+      "tags": [
+        "VLA",
+        "复现"
+      ],
+      "notes": [],
+      "created": "2026-02-14T16:58:00",
+      "updated": "2026-02-14T17:00:43"
+    },
+    {
+      "id": "t-b321c6",
+      "title": "整理 Bridge 数据集的预处理脚本",
+      "description": "",
+      "status": "done",
+      "priority": "medium",
+      "tags": [
+        "Bridge",
+        "数据处理"
+      ],
+      "notes": [],
+      "created": "2026-02-14T16:59:29",
+      "updated": "2026-02-14T17:01:23"
+    },
+    {
+      "id": "t-09152a",
+      "title": "调试机器人的抓取动作",
+      "description": "",
+      "status": "todo",
+      "priority": "high",
+      "tags": [
+        "机器人",
+        "调试"
+      ],
+      "notes": [],
+      "created": "2026-02-14T16:59:29",
+      "updated": "2026-02-14T16:59:29"
+    }
+  ]
+}

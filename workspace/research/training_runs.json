@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "runs": [
+    {
+      "id": "run-7fe6f9",
+      "name": "OpenVLA-7B finetune Bridge",
+      "model": "OpenVLA-7B",
+      "dataset": "bridge_v2",
+      "hyperparams": {
+        "lr": 2e-05,
+        "batch_size": 32,
+        "epochs": 100,
+        "optimizer": "AdamW"
+      },
+      "status": "completed",
+      "gpu_info": "4x A100 80GB",
+      "vla_config": {
+        "action_space": "7-DoF delta EEF",
+        "observation_space": "RGB 256x256",
+        "embodiment": "WidowX 250",
+        "environment": "real-world tabletop",
+        "backbone": "Prismatic-7B VLM"
+      },
+      "metrics_history": [
+        {
+          "time": "2026-02-10T23:22:43",
+          "epoch": 10,
+          "loss": 0.85,
+          "action_mse": 0.045
+        },
+        {
+          "time": "2026-02-10T23:22:43",
+          "epoch": 30,
+          "loss": 0.42,
+          "action_mse": 0.023
+        },
+        {
+          "time": "2026-02-10T23:22:43",
+          "epoch": 50,
+          "loss": 0.28,
+          "action_mse": 0.015,
+          "success_rate": 0.62
+        },
+        {
+          "time": "2026-02-10T23:22:43",
+          "epoch": 80,
+          "loss": 0.19,
+          "action_mse": 0.009,
+          "success_rate": 0.78
+        },
+        {
+          "time": "2026-02-10T23:22:43",
+          "epoch": 100,
+          "loss": 0.14,
+          "action_mse": 0.006,
+          "success_rate": 0.84
+        }
+      ],
+      "latest_metrics": {
+        "epoch": 100,
+        "loss": 0.14,
+        "action_mse": 0.006,
+        "success_rate": 0.84
+      },
+      "notes": [
+        {
+          "time": "2026-02-10T23:22:43",
+          "content": "Training done! SR=0.84 beats baseline 0.75"
+        }
+      ],
+      "checkpoints": [
+        "best_sr084.pt"
+      ],
+      "created": "2026-02-10T23:22:43",
+      "updated": "2026-02-10T23:22:43",
+      "started": "2026-02-10T23:22:43",
+      "finished": "2026-02-10T23:22:43"
+    },
+    {
+      "id": "run-c5de97",
+      "name": "OpenVLA-7B lr=1e-4",
+      "model": "OpenVLA-7B",
+      "dataset": "bridge_v2",
+      "hyperparams": {
+        "lr": 0.0001,
+        "batch_size": 32,
+        "epochs": 100,
+        "optimizer": "AdamW"
+      },
+      "status": "running",
+      "gpu_info": "4x A100 80GB",
+      "vla_config": {
+        "action_space": "7-DoF delta EEF",
+        "observation_space": "RGB 256x256",
+        "embodiment": "WidowX 250",
+        "environment": "real-world tabletop",
+        "backbone": "Prismatic-7B VLM"
+      },
+      "metrics_history": [
+        {
+          "time": "2026-02-10T23:22:43",
+          "epoch": 10,
+          "loss": 0.92,
+          "action_mse": 0.05
+        },
+        {
+          "time": "2026-02-10T23:22:43",
+          "epoch": 30,
+          "loss": 0.55,
+          "action_mse": 0.031
+        },
+        {
+          "time": "2026-02-10T23:22:43",
+          "epoch": 50,
+          "loss": 0.38,
+          "action_mse": 0.022,
+          "success_rate": 0.55
+        },
+        {
+          "time": "2026-02-14T18:11:01",
+          "loss": 0.3,
+          "action_mse": 0.018,
+          "success_rate": 0.62
+        }
+      ],
+      "latest_metrics": {
+        "epoch": 50,
+        "loss": 0.3,
+        "action_mse": 0.018,
+        "success_rate": 0.62
+      },
+      "notes": [
+        {
+          "time": "2026-02-14T18:11:01",
+          "content": "Updated metrics"
+        }
+      ],
+      "checkpoints": [],
+      "created": "2026-02-10T23:22:43",
+      "updated": "2026-02-14T18:11:01",
+      "started": "2026-02-10T23:22:43",
+      "finished": null
+    },
+    {
+      "id": "run-3fd195",
+      "name": "Test run",
+      "model": "TestModel",
+      "dataset": "",
+      "hyperparams": {},
+      "status": "completed",
+      "gpu_info": "",
+      "vla_config": {},
+      "metrics_history": [
+        {
+          "time": "2026-02-14T15:43:56",
+          "epoch": 1,
+          "loss": 0.5
+        },
+        {
+          "time": "2026-02-14T15:43:56",
+          "epoch": 2,
+          "loss": 0.3
+        }
+      ],
+      "latest_metrics": {
+        "epoch": 2,
+        "loss": 0.3
+      },
+      "notes": [],
+      "checkpoints": [],
+      "created": "2026-02-14T15:43:56",
+      "updated": "2026-02-14T15:43:56",
+      "started": "2026-02-14T15:43:56",
+      "finished": "2026-02-14T15:43:56"
+    },
+    {
+      "id": "run-21bce9",
+      "name": "RT-2-base Fine-tuning",
+      "model": "RT-2-base",
+      "dataset": "Open-X-Embodiment",
+      "hyperparams": {},
+      "status": "queued",
+      "gpu_info": "8x A100 80GB",
+      "vla_config": {},
+      "metrics_history": [],
+      "latest_metrics": {},
+      "notes": [
+        {
+          "time": "2026-02-14T19:25:42",
+          "content": "学习率 1e-4, batch size 64"
+        }
+      ],
+      "checkpoints": [],
+      "created": "2026-02-14T19:25:42",
+      "updated": "2026-02-14T19:25:42",
+      "started": null,
+      "finished": null
+    }
+  ]
+}

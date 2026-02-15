@@ -472,6 +472,20 @@ def agent(
 
 
 # ============================================================================
+# Feishu Bot Command
+# ============================================================================
+
+
+@app.command()
+def feishu(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+):
+    """Start the Feishu bot (standalone mode)."""
+    from nanobot.feishu_bot import main as feishu_main
+    feishu_main(verbose=verbose)
+
+
+# ============================================================================
 # Channel Commands
 # ============================================================================
 
