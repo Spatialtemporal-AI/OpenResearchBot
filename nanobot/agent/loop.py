@@ -22,6 +22,7 @@ from nanobot.agent.tools.jobs import BackgroundJobStartTool, BackgroundJobStatus
 from nanobot.agent.tools.cursor_cli import CursorCliAskTool
 from nanobot.agent.tools.task_tracker import TaskTrackerTool
 from nanobot.agent.tools.training_tracker import TrainingTrackerTool
+from nanobot.agent.tools.logger import BaselineLoggerTool
 from nanobot.agent.subagent import SubagentManager
 from nanobot.session.manager import SessionManager
 
@@ -124,6 +125,8 @@ class AgentLoop:
         # Research tools (task & training tracking)
         self.tools.register(TaskTrackerTool(workspace=self.workspace))
         self.tools.register(TrainingTrackerTool(workspace=self.workspace))
+        # Baseline logger tool
+        self.tools.register(BaselineLoggerTool(workspace=self.workspace))
     
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""
