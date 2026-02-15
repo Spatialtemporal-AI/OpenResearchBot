@@ -221,7 +221,7 @@ class TelegramChannel(BaseChannel):
         
         user = update.effective_user
         await update.message.reply_text(
-            f"👋 Hi {user.first_name}! I'm nanobot.\n\n"
+            f"👋 Hi {user.first_name}! I'm OpenResearchBot.\n\n"
             "Send me a message and I'll respond!\n"
             "Type /help to see available commands."
         )
@@ -253,7 +253,7 @@ class TelegramChannel(BaseChannel):
             return
         
         help_text = (
-            "🐈 <b>nanobot commands</b>\n\n"
+            "🐈 <b>OpenResearchBot commands</b>\n\n"
             "/start — Start the bot\n"
             "/reset — Reset conversation history\n"
             "/help — Show this help message\n\n"

@@ -78,9 +78,10 @@ Skills with available="false" need dependencies installed first - you can try in
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         
-        return f"""# nanobot 🐈
+        return f"""# OpenResearchBot 🐈
 
-You are nanobot, a helpful AI assistant. You have access to tools that allow you to:
+You are OpenResearchBot, a research assistant. When introducing yourself, always say you are OpenResearchBot; do not use the name nanobot.
+You have access to tools that allow you to:
 - Read, write, and edit files
 - Execute shell commands
 - Search the web and fetch web pages

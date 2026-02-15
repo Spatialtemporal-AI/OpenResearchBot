@@ -7,6 +7,7 @@ import threading
 from collections import OrderedDict
 from typing import Any
 
+import requests
 from loguru import logger
 
 from nanobot.bus.events import OutboundMessage
@@ -76,6 +77,9 @@ _AT_MENTION_RE = re.compile(
     r'<at user_id="[^"]*">[^<]*</at>\s*|@_user_\d+\s*|@\S+\s*',
     re.IGNORECASE,
 )
+# Extract user_id from <at user_id="xxx"> for mention check (allow optional spaces)
+_AT_USER_ID_RE = re.compile(r'<at\s+user_id\s*=\s*"([^"]+)"\s*>', re.IGNORECASE)
+_AT_USER_ID_STRICT_RE = re.compile(r'<at user_id="([^"]+)"\s*>', re.IGNORECASE)
 
 
 class FeishuChannel(BaseChannel):
@@ -112,6 +116,83 @@ class FeishuChannel(BaseChannel):
         self._loop: asyncio.AbstractEventLoop | None = None
         # Track "thinking" card message IDs for later update
         self._thinking_cards: dict[str, str] = {}  # chat_reply_key → message_id
+        # Bot open_id: in group chat only reply when message @mentions the bot (OpenClaw-style requireMention)
+        self._bot_open_id: str | None = None
+        self._logged_no_bot_open_id: bool = False
+    
+    def _fetch_bot_open_id_sync(self) -> str | None:
+        """Get bot open_id from Feishu API (for group @mention check). Returns None on failure."""
+        try:
+            resp = requests.post(
+                "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+                json={"app_id": self.config.app_id, "app_secret": self.config.app_secret},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("code") != 0:
+                return None
+            token = data.get("tenant_access_token")
+            if not token:
+                return None
+            info_resp = requests.get(
+                "https://open.feishu.cn/open-apis/bot/v3/info",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            info_resp.raise_for_status()
+            info = info_resp.json()
+            if info.get("code") != 0:
+                logger.debug(f"Feishu bot info API code={info.get('code')}, msg={info.get('msg')}")
+                return None
+            # 兼容 data.bot 或顶层 bot
+            bot = (info.get("data") or {}).get("bot") or info.get("bot") or {}
+            open_id = bot.get("open_id") or None
+            if not open_id:
+                logger.debug(f"Feishu bot info response has no open_id: keys={list(bot.keys())}")
+            return open_id
+        except Exception as e:
+            logger.warning(f"Could not fetch Feishu bot open_id: {e}")
+            return None
+    
+    def _is_bot_mentioned_in_group(
+        self, message: Any, raw_content: str, msg_type: str
+    ) -> bool:
+        """Return True if the message in a group chat @mentions this bot (so we should reply)."""
+        if not self._bot_open_id:
+            return False
+        bot_id = self._bot_open_id.strip()
+        # 1) Prefer event.message.mentions (飞书事件里的被@列表，最可靠)
+        mentions = getattr(message, "mentions", None)
+        if mentions is not None:
+            for m in mentions if isinstance(mentions, (list, tuple)) else []:
+                mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+                if mid is None:
+                    continue
+                # lark_oapi 里 mention.id 是 UserId 对象，需取 .open_id
+                open_id_str = (
+                    getattr(mid, "open_id", None)
+                    if not isinstance(mid, str)
+                    else mid
+                )
+                if open_id_str and str(open_id_str).strip() == bot_id:
+                    return True
+                    
+        # 2) Fallback: parse content text and match <at user_id="...">
+        if msg_type != "text":
+            return False
+        try:
+            parsed = json.loads(raw_content)
+            text = parsed.get("text", "") if isinstance(parsed, dict) else raw_content
+        except json.JSONDecodeError:
+            text = raw_content
+        if not text:
+            return False
+        for pattern in (_AT_USER_ID_STRICT_RE, _AT_USER_ID_RE):
+            for mo in pattern.finditer(text):
+                if mo.group(1).strip() == bot_id:
+                    return True
+        return False
     
     async def start(self) -> None:
         """Start the Feishu bot with WebSocket long connection."""
@@ -158,6 +239,14 @@ class FeishuChannel(BaseChannel):
         
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
+        
+        # Fetch bot open_id so in group chat we only reply when @mentioned (OpenClaw requireMention style)
+        loop = asyncio.get_running_loop()
+        self._bot_open_id = await loop.run_in_executor(None, self._fetch_bot_open_id_sync)
+        if self._bot_open_id:
+            logger.debug(f"Feishu bot open_id: {self._bot_open_id} (group: reply only when @mentioned)")
+        else:
+            logger.warning("Feishu bot open_id not available; in group chat bot will not reply")
         
         logger.info("Feishu bot started with WebSocket long connection")
         logger.info("No public IP required - using WebSocket to receive events")
@@ -513,7 +602,6 @@ class FeishuChannel(BaseChannel):
             event = data.event
             message = event.message
             sender = event.sender
-            
             # Deduplication check
             message_id = message.message_id
             if message_id in self._processed_message_ids:
@@ -533,6 +621,19 @@ class FeishuChannel(BaseChannel):
             chat_id = message.chat_id
             chat_type = message.chat_type  # "p2p" or "group"
             msg_type = message.message_type
+            
+            # Group chat: only reply when the bot is @mentioned (OpenClaw requireMention behavior)
+            if chat_type == "group":
+                raw_content = message.content or ""
+                if self._bot_open_id:
+                    if not self._is_bot_mentioned_in_group(message, raw_content, msg_type):
+                        return
+                else:
+                    if not self._logged_no_bot_open_id:
+                        self._logged_no_bot_open_id = True
+                        logger.warning(
+                            "Feishu bot open_id unavailable: replying to all group messages (mention check skipped)"
+                        )
             
             # Add reaction to indicate "seen"
             await self._add_reaction(message_id, "OnIt")
